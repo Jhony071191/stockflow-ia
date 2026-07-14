@@ -1,6 +1,19 @@
 import type { AnalyzedInventoryItem, RawInventoryItem } from "./inventory";
 
-export type WarehouseZone = "PICKING" | "RESERVA" | "APQ";
+export type WarehouseZone = "PICKING" | "RESERVA" | "SUELO" | "CALIDAD" | "APQ";
+
+export type WarehouseCapabilities = {
+  product: boolean;
+  family: boolean;
+  unitCost: boolean;
+  demand: boolean;
+  location: boolean;
+  completeLayout: boolean;
+  hazardous: boolean;
+  manufacturingDate: boolean;
+  expiryDate: boolean;
+  pendingPicking: boolean;
+};
 
 export type WarehouseConfig = {
   aisleCount: number;
@@ -31,6 +44,16 @@ export type WarehouseStock = {
   hazardous: boolean;
   pendingPicking: number;
   capacity: number;
+  sourceLocationCode?: string;
+  sourceZone?: WarehouseZone;
+  qualityGrade?: string;
+  holdCode?: string;
+  dataQuality?: {
+    productAvailable: boolean;
+    familyAvailable: boolean;
+    unitCostAvailable: boolean;
+    demandAvailable: boolean;
+  };
 };
 
 export type WarehouseLocationOverride = {
@@ -40,6 +63,8 @@ export type WarehouseLocationOverride = {
   family?: string;
   hazardous?: boolean;
   capacity?: number;
+  sourceCode?: string;
+  zone?: WarehouseZone;
 };
 
 export type WarehouseDataset = {
@@ -48,10 +73,21 @@ export type WarehouseDataset = {
   locationOverrides: WarehouseLocationOverride[];
   aisleFamilies: Record<number, string>;
   warnings: string[];
+  layoutMode?: "structured" | "source";
+  capabilities?: WarehouseCapabilities;
+  importSummary?: {
+    sheetName: string;
+    headerRow: number;
+    dataRows: number;
+    mappedFields: number;
+    profileSignature: string;
+  };
 };
 
 export type WarehouseLocation = {
   code: string;
+  logicalCode?: string;
+  sourceCode?: string;
   aisle: number;
   bay: number;
   level: number;
@@ -181,6 +217,49 @@ const exactLotMatch = (left: WarehouseStock, right: WarehouseStock) => Boolean(
 );
 
 export function buildWarehouseLocations(dataset: WarehouseDataset): WarehouseLocation[] {
+  if (dataset.layoutMode === "source") {
+    const unlocatedPrefix = "__SIN_UBICACION__";
+    const overrides = new Map(dataset.locationOverrides.map((item) => [
+      item.sourceCode || formatLocationCode(item.aisle, item.bay, item.level),
+      item,
+    ]));
+    const grouped = new Map<string, WarehouseStock[]>();
+    dataset.stocks.forEach((stock) => {
+      const key = stock.sourceLocationCode || `${unlocatedPrefix}${stock.id}`;
+      grouped.set(key, [...(grouped.get(key) ?? []), stock]);
+    });
+    const sourceCodes = new Set([...grouped.keys(), ...overrides.keys()]);
+    return [...sourceCodes].map((sourceKey) => {
+      const contents = grouped.get(sourceKey) ?? [];
+      const override = overrides.get(sourceKey);
+      const first = contents[0];
+      const aisle = first?.aisle ?? override?.aisle ?? 1;
+      const bay = first?.bay ?? override?.bay ?? 1;
+      const level = first?.level ?? override?.level ?? 1;
+      const logicalCode = formatLocationCode(aisle, bay, level);
+      const hazardous = Boolean(override?.hazardous) || contents.some((item) => item.hazardous);
+      const zone = hazardous
+        ? "APQ"
+        : override?.zone || contents.find((item) => item.sourceZone)?.sourceZone || (level === 1 ? "PICKING" : "RESERVA");
+      const family = override?.family || contents[0]?.family || "Sin asignar";
+      const capacity = Math.max(override?.capacity ?? 0, ...contents.map((item) => item.capacity), dataset.config.defaultCapacity);
+      const sourceCode = sourceKey.startsWith(unlocatedPrefix) ? undefined : sourceKey;
+      return {
+        code: sourceCode || `SIN-UBICACION-${first?.id || logicalCode}`,
+        logicalCode,
+        sourceCode,
+        aisle,
+        bay,
+        level,
+        zone,
+        family,
+        capacity,
+        quantity: contents.reduce((sum, item) => sum + item.quantity, 0),
+        pendingPicking: contents.reduce((sum, item) => sum + item.pendingPicking, 0),
+        contents,
+      };
+    }).sort((left, right) => left.code.localeCompare(right.code, undefined, { numeric: true }));
+  }
   const overrides = new Map(dataset.locationOverrides.map((item) => [
     formatLocationCode(item.aisle, item.bay, item.level),
     item,
@@ -234,19 +313,29 @@ export function inventoryFromWarehouse(dataset: WarehouseDataset): RawInventoryI
   dataset.stocks.forEach((stock) => grouped.set(stock.sku, [...(grouped.get(stock.sku) ?? []), stock]));
   return [...grouped.values()].map((stocks) => {
     const first = stocks[0];
+    const productSource = stocks.find((item) => item.dataQuality?.productAvailable) ?? first;
+    const familySource = stocks.find((item) => item.dataQuality?.familyAvailable) ?? first;
+    const costSource = stocks.find((item) => item.dataQuality?.unitCostAvailable) ?? first;
+    const demandSource = stocks.find((item) => item.dataQuality?.demandAvailable) ?? first;
     const expiries = stocks.map((item) => item.expiryDate).filter(Boolean).sort();
     return {
       sku: first.sku,
-      product: first.product,
-      category: first.family,
+      product: productSource.product,
+      category: familySource.family,
       currentStock: stocks.reduce((sum, item) => sum + item.quantity, 0),
-      unitCost: first.unitCost,
-      leadTimeDays: first.leadTimeDays,
-      safetyStock: first.safetyStock,
-      salesM1: first.salesM1,
-      salesM2: first.salesM2,
-      salesM3: first.salesM3,
+      unitCost: costSource.unitCost,
+      leadTimeDays: demandSource.leadTimeDays,
+      safetyStock: demandSource.safetyStock,
+      salesM1: demandSource.salesM1,
+      salesM2: demandSource.salesM2,
+      salesM3: demandSource.salesM3,
       expiryDate: expiries[0] || undefined,
+      dataQuality: {
+        productAvailable: stocks.some((item) => item.dataQuality?.productAvailable ?? dataset.capabilities?.product ?? true),
+        familyAvailable: stocks.some((item) => item.dataQuality?.familyAvailable ?? dataset.capabilities?.family ?? true),
+        unitCostAvailable: stocks.some((item) => item.dataQuality?.unitCostAvailable ?? dataset.capabilities?.unitCost ?? true),
+        demandAvailable: stocks.some((item) => item.dataQuality?.demandAvailable ?? dataset.capabilities?.demand ?? true),
+      },
     };
   });
 }
@@ -292,6 +381,7 @@ const pickTarget = (
 };
 
 export function calculateWarehouseMoves(dataset: WarehouseDataset, items: AnalyzedInventoryItem[]): WarehouseMove[] {
+  if (dataset.layoutMode === "source" || dataset.capabilities?.completeLayout === false || dataset.capabilities?.demand === false) return [];
   const locations = buildWarehouseLocations(dataset);
   const itemBySku = new Map(items.map((item) => [item.sku, item]));
   const stocksBySku = new Map<string, WarehouseStock[]>();
@@ -301,7 +391,7 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
 
   stocksBySku.forEach((stocks, sku) => {
     const item = itemBySku.get(sku);
-    if (!item) return;
+    if (!item || !item.demandAvailable) return;
     const floorStocks = stocks.filter((stock) => stock.level === 1);
     const heightStocks = stocks.filter((stock) => stock.level > 1);
     const floorQuantity = floorStocks.reduce((sum, stock) => sum + stock.quantity, 0);

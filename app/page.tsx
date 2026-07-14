@@ -65,13 +65,20 @@ import {
   createDemoWarehouseDataset,
   createWarehouseTemplateRows,
   exportWarehouseCsv,
-  parseWarehouseCsv,
-  parseWarehouseRows,
   warehouseSummary,
   type WarehouseDataset,
   type WarehouseLocation,
   type WarehouseMove,
 } from "../lib/warehouse";
+import {
+  UNIVERSAL_EDITABLE_FIELDS,
+  UNIVERSAL_FIELD_LABELS,
+  analyzeUniversalWorkbook,
+  reanalyzeUniversalDraft,
+  translateUniversalDraft,
+  type UniversalImportDraft,
+  type UniversalMapping,
+} from "../lib/universal-import";
 import {
   addSixMonths,
   calculateCountMetrics,
@@ -99,6 +106,7 @@ const currency = new Intl.NumberFormat("es-ES", {
 
 const decimal = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 });
 const SAMPLE_WAREHOUSE = createDemoWarehouseDataset(SAMPLE_INVENTORY);
+const IMPORT_PROFILE_KEY = "stockflow-universal-import-profiles-v1";
 
 const downloadTextFile = (filename: string, contents: string) => {
   const blob = new Blob([`\uFEFF${contents}`], { type: "text/csv;charset=utf-8" });
@@ -112,7 +120,7 @@ const downloadTextFile = (filename: string, contents: string) => {
   URL.revokeObjectURL(url);
 };
 
-const coverageLabel = (coverage: number) => coverage >= 999 ? "Sin consumo" : `${decimal.format(coverage)} días`;
+const coverageLabel = (coverage: number, demandAvailable = true) => !demandAvailable ? "No disponible" : coverage >= 999 ? "Sin consumo" : `${decimal.format(coverage)} días`;
 
 function PriorityBadge({ status, label }: { status: StockStatus; label: string }) {
   return (
@@ -181,7 +189,7 @@ function ActionTable({
                 <span className="product-line">{item.product}</span>
               </td>
               <td className={`situation situation-${item.status}`}>{item.situation}</td>
-              <td>{coverageLabel(item.coverageDays)}</td>
+              <td>{coverageLabel(item.coverageDays, item.demandAvailable)}</td>
               <td className="recommendation">{item.recommendation}</td>
               <td><ChevronRight size={18} aria-hidden="true" /></td>
             </tr>
@@ -204,6 +212,10 @@ function Dashboard({
   onSelect: (item: AnalyzedInventoryItem) => void;
 }) {
   const { summary, items } = analysis;
+  const costKnownCount = items.filter((item) => item.unitCostAvailable).length;
+  const demandKnownCount = items.filter((item) => item.demandAvailable).length;
+  const hasCost = costKnownCount > 0;
+  const hasDemand = demandKnownCount > 0;
   return (
     <div className="view-enter">
       <header className="hero">
@@ -220,10 +232,10 @@ function Dashboard({
       </header>
 
       <section className="stats-grid" aria-label="Indicadores principales">
-        <StatCard label="Valor del inventario" value={currency.format(summary.totalStockValue)} helper={`${items.length} referencias analizadas`} tone="teal" icon={Euro} />
-        <StatCard label="Riesgo de rotura" value={`${summary.riskCount} SKU`} helper={`${summary.actionTodayCount} clase A requieren acción`} tone="red" icon={CircleAlert} />
-        <StatCard label="Sobrestock" value={`${summary.overstockCount} SKU`} helper={`${currency.format(summary.immobilizedValue)} inmovilizados`} tone="amber" icon={Boxes} />
-        <StatCard label="Cobertura media" value={`${decimal.format(summary.averageCoverage)} días`} helper="Objetivo recomendado: 35–60 días" tone="blue" icon={CalendarDays} />
+        <StatCard label="Valor del inventario" value={hasCost ? currency.format(summary.totalStockValue) : "Pendiente"} helper={hasCost ? `${costKnownCount} de ${items.length} referencias con coste` : "Añade el coste unitario para calcularlo"} tone="teal" icon={Euro} />
+        <StatCard label="Riesgo de rotura" value={hasDemand ? `${summary.riskCount} SKU` : "Pendiente"} helper={hasDemand ? `${summary.actionTodayCount} clase A requieren acción` : "Añade demanda, consumo o pedidos"} tone="red" icon={CircleAlert} />
+        <StatCard label="Sobrestock" value={hasDemand ? `${summary.overstockCount} SKU` : "Pendiente"} helper={hasDemand ? `${hasCost ? currency.format(summary.immobilizedValue) : "Valor pendiente"} inmovilizado` : "No se presume demanda igual a cero"} tone="amber" icon={Boxes} />
+        <StatCard label="Cobertura media" value={hasDemand ? `${decimal.format(summary.averageCoverage)} días` : "Pendiente"} helper={hasDemand ? `${demandKnownCount} de ${items.length} referencias con demanda` : "Objetivo disponible al añadir consumo"} tone="blue" icon={CalendarDays} />
       </section>
 
       <section className="panel actions-panel">
@@ -270,6 +282,7 @@ function InventoryView({
     count: items.filter((item) => item.abcClass === abcClass).length,
     value: items.filter((item) => item.abcClass === abcClass).reduce((sum, item) => sum + item.consumptionValue, 0),
   }));
+  const abcKnownCount = items.filter((item) => item.demandAvailable && item.unitCostAvailable).length;
 
   return (
     <div className="view-enter section-view">
@@ -279,18 +292,18 @@ function InventoryView({
           <h1>Inventario</h1>
           <p>Consulta la clasificación ABC, cobertura, rotación y nivel de riesgo.</p>
         </div>
-        <button className="primary-button compact" onClick={onUpload} type="button"><Upload size={18} /> Importar CSV</button>
+        <button className="primary-button compact" onClick={onUpload} type="button"><Upload size={18} /> Importar Excel / CSV</button>
       </div>
 
-      <section className="abc-summary" aria-label="Resumen de clasificación ABC">
-        {classSummary.map((item) => (
-          <article key={item.abcClass}>
-            <span className={`abc-badge abc-${item.abcClass.toLowerCase()}`}>{item.abcClass}</span>
-            <div><strong>{item.count} SKU</strong><p>{currency.format(item.value)} de consumo mensual</p></div>
-          </article>
-        ))}
-        <div className="abc-help"><Info size={18} /><span>A concentra el mayor valor; C, el menor.</span></div>
-      </section>
+      {abcKnownCount ? <section className="abc-summary" aria-label="Resumen de clasificación ABC">
+          {classSummary.map((item) => (
+            <article key={item.abcClass}>
+              <span className={`abc-badge abc-${item.abcClass.toLowerCase()}`}>{item.abcClass}</span>
+              <div><strong>{item.count} SKU</strong><p>{currency.format(item.value)} de consumo mensual</p></div>
+            </article>
+          ))}
+          <div className="abc-help"><Info size={18} /><span>ABC económico calculado con demanda y coste disponibles en {abcKnownCount} de {items.length} SKU.</span></div>
+        </section> : <section className="inventory-data-notice"><CircleAlert size={19} /><div><strong>Clasificación ABC económica pendiente</strong><p>El stock físico está disponible. Añade coste y demanda para clasificar referencias por valor de consumo sin asumir datos que el Excel no contiene.</p></div></section>}
 
       <section className="panel">
         <div className="toolbar">
@@ -313,8 +326,8 @@ function InventoryView({
                 <tr key={item.sku} onClick={() => onSelect(item)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onSelect(item)}>
                   <td><span className={`abc-badge abc-${item.abcClass.toLowerCase()}`}>{item.abcClass}</span></td>
                   <td><span className="sku-line">{item.sku}</span><span className="product-line">{item.product}</span></td>
-                  <td>{item.category}</td><td>{decimal.format(item.currentStock)}</td><td>{decimal.format(item.averageMonthlyDemand)}</td>
-                  <td>{coverageLabel(item.coverageDays)}</td><td>{decimal.format(item.rotationMonthly)}×</td>
+                  <td>{item.category}</td><td>{decimal.format(item.currentStock)}</td><td>{item.demandAvailable ? decimal.format(item.averageMonthlyDemand) : "—"}</td>
+                  <td>{coverageLabel(item.coverageDays, item.demandAvailable)}</td><td>{item.demandAvailable ? `${decimal.format(item.rotationMonthly)}×` : "—"}</td>
                   <td><PriorityBadge status={item.status} label={item.statusLabel} /></td>
                 </tr>
               ))}
@@ -328,18 +341,18 @@ function InventoryView({
   );
 }
 
-function WarehouseLocationDrawer({ location, onClose }: { location: WarehouseLocation | null; onClose: () => void }) {
+function WarehouseLocationDrawer({ location, pendingKnown, onClose }: { location: WarehouseLocation | null; pendingKnown: boolean; onClose: () => void }) {
   if (!location) return null;
+  const unlocated = location.code.startsWith("SIN-UBICACION-");
   return (
     <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <aside aria-labelledby="location-detail-title" aria-modal="true" className="detail-drawer location-drawer" role="dialog">
         <button className="modal-close" aria-label="Cerrar detalle de ubicación" onClick={onClose} type="button"><X size={20} /></button>
         <p className="eyebrow">Ubicación logística</p>
-        <h2 id="location-detail-title">{location.code}</h2>
+        <h2 id="location-detail-title">{unlocated ? "Sin ubicación informada" : location.code}</h2>
         <div className="drawer-meta">
-          <span>Pasillo {location.aisle}</span>
-          <span>Altura {location.level}</span>
-          <span className={location.zone === "APQ" ? "zone-chip apq" : "zone-chip"}>{location.zone}</span>
+          {unlocated ? <span>El archivo no contiene una dirección para este registro</span> : location.sourceCode ? <span>Coordenada lógica {location.logicalCode}</span> : <><span>Pasillo {location.aisle}</span><span>Altura {location.level}</span></>}
+          {!unlocated && <span className={`zone-chip ${location.zone.toLowerCase()}`}>{location.zone}</span>}
         </div>
         <section className="location-capacity-card">
           <div><span>Familia asignada</span><strong>{location.family}</strong></div>
@@ -357,7 +370,9 @@ function WarehouseLocationDrawer({ location, onClose }: { location: WarehouseLoc
                   <div><dt>Lote</dt><dd>{stock.batch || "No informado"}</dd></div>
                   <div><dt>Fabricación</dt><dd>{stock.manufacturingDate || "No informada"}</dd></div>
                   <div><dt>Vencimiento</dt><dd>{stock.expiryDate || "No informado"}</dd></div>
-                  <div><dt>Picking próximo</dt><dd>{decimal.format(stock.pendingPicking)} ud.</dd></div>
+                  <div><dt>Picking próximo</dt><dd>{pendingKnown ? `${decimal.format(stock.pendingPicking)} ud.` : "No informado"}</dd></div>
+                  {stock.qualityGrade && <div><dt>Grado</dt><dd>{stock.qualityGrade}</dd></div>}
+                  {stock.holdCode && <div><dt>Bloqueo</dt><dd>{stock.holdCode}</dd></div>}
                 </dl>
                 {stock.hazardous && <p className="apq-notice"><ShieldAlert size={16} /> Mercancía APQ: mantener segregación y validar compatibilidad.</p>}
               </article>
@@ -395,6 +410,9 @@ function WarehouseView({
   const [statusFilter, setStatusFilter] = useState("all");
   const [familyFilter, setFamilyFilter] = useState("all");
   const [selectedLocation, setSelectedLocation] = useState<WarehouseLocation | null>(null);
+  const [sourcePage, setSourcePage] = useState(0);
+  const sourceMode = dataset.layoutMode === "source";
+  const capabilities = dataset.capabilities;
   const families = [...new Set(locations.map((location) => location.family))].sort();
   const normalizedQuery = query.trim().toLowerCase();
   const matchesLocation = (location: WarehouseLocation) => {
@@ -412,6 +430,14 @@ function WarehouseView({
     if (aisleFilter !== "all" && Number(aisleFilter) !== aisle) return false;
     return locations.filter((location) => location.aisle === aisle).some(matchesLocation);
   });
+  const sourceFiltered = locations.filter((location) => {
+    if (aisleFilter !== "all" && location.aisle !== Number(aisleFilter)) return false;
+    return matchesLocation(location);
+  });
+  const sourcePageSize = 120;
+  const sourcePages = Math.max(1, Math.ceil(sourceFiltered.length / sourcePageSize));
+  const safeSourcePage = Math.min(sourcePage, sourcePages - 1);
+  const sourceVisible = sourceFiltered.slice(safeSourcePage * sourcePageSize, (safeSourcePage + 1) * sourcePageSize);
 
   return (
     <div className="view-enter section-view warehouse-view">
@@ -419,7 +445,7 @@ function WarehouseView({
         <div>
           <p className="eyebrow">Gemelo operativo del almacén</p>
           <h1>Mapa de ubicaciones</h1>
-          <p>Visualiza pasillos, alturas, familias, lotes, zona APQ y salidas de picking.</p>
+          <p>{sourceMode ? "Consulta las ubicaciones originales traducidas desde el sistema de la empresa." : "Visualiza pasillos, alturas, familias, lotes, zona APQ y salidas de picking."}</p>
         </div>
         <div className="warehouse-heading-actions">
           <button className="secondary-button" onClick={onExport} type="button"><Download size={17} /> Exportar mapa</button>
@@ -428,17 +454,36 @@ function WarehouseView({
       </div>
 
       <section className="warehouse-stats" aria-label="Resumen de ubicaciones">
-        <article><span className="warehouse-stat-icon blue"><MapPin size={20} /></span><div><small>Ubicaciones</small><strong>{summary.total}</strong><p>{dataset.config.aisleCount} pasillos · {dataset.config.levelCount} alturas</p></div></article>
+        <article><span className="warehouse-stat-icon blue"><MapPin size={20} /></span><div><small>Ubicaciones</small><strong>{summary.total}</strong><p>{sourceMode ? "confirmadas por el archivo" : `${dataset.config.aisleCount} pasillos · ${dataset.config.levelCount} alturas`}</p></div></article>
         <article><span className="warehouse-stat-icon teal"><Boxes size={20} /></span><div><small>Ocupadas</small><strong>{summary.occupied}</strong><p>{decimal.format((summary.occupied / Math.max(1, summary.total)) * 100)} % de ocupación</p></div></article>
-        <article><span className="warehouse-stat-icon green"><PackageOpen size={20} /></span><div><small>Vacías</small><strong>{summary.empty}</strong><p>huecos disponibles</p></div></article>
-        <article><span className="warehouse-stat-icon amber"><ListChecks size={20} /></span><div><small>Picking próximo</small><strong>{decimal.format(summary.pendingPicking)} ud.</strong><p>reservadas para pedidos</p></div></article>
-        <article><span className="warehouse-stat-icon red"><ShieldAlert size={20} /></span><div><small>Zona APQ</small><strong>{summary.apq}</strong><p>ubicaciones segregadas</p></div></article>
+        <article><span className="warehouse-stat-icon green"><PackageOpen size={20} /></span><div><small>Vacías</small><strong>{sourceMode && !capabilities?.completeLayout && summary.empty === 0 ? "—" : summary.empty}</strong><p>{sourceMode && !capabilities?.completeLayout ? (summary.empty ? "vacías confirmadas; el maestro puede estar incompleto" : "requiere maestro de huecos") : "huecos disponibles"}</p></div></article>
+        <article><span className="warehouse-stat-icon amber"><ListChecks size={20} /></span><div><small>Picking próximo</small><strong>{capabilities?.pendingPicking === false ? "—" : `${decimal.format(summary.pendingPicking)} ud.`}</strong><p>{capabilities?.pendingPicking === false ? "no incluido en el archivo" : "reservadas para pedidos"}</p></div></article>
+        <article><span className="warehouse-stat-icon red"><ShieldAlert size={20} /></span><div><small>Zona APQ</small><strong>{capabilities?.hazardous === false ? "—" : summary.apq}</strong><p>{capabilities?.hazardous === false ? "no indicado en el archivo" : "ubicaciones segregadas"}</p></div></article>
       </section>
 
       <section className="warehouse-rule-banner">
         <Layers3 size={22} />
-        <div><strong>Regla de almacenamiento activa</strong><p>Se deja un mes de demanda disponible en suelo después del picking. El sobrante sube a altura y solo se fusiona si coinciden exactamente SKU, lote, fabricación y vencimiento.</p></div>
+        {capabilities?.demand === false
+          ? <div><strong>Datos físicos traducidos · recomendaciones en espera</strong><p>Las ubicaciones y cantidades ya pueden consultarse. StockFlow no calculará sobrestock ni aprovisionamiento hasta recibir demanda, consumo o pedidos reales.</p></div>
+          : capabilities?.completeLayout === false
+            ? <div><strong>Ubicaciones de origen preservadas</strong><p>El archivo no contiene un maestro completo de huecos. Se muestran las ubicaciones confirmadas sin inventar espacios vacíos ni destinos de movimiento.</p></div>
+            : <div><strong>Regla de almacenamiento activa</strong><p>Se deja un mes de demanda disponible en suelo después del picking. El sobrante sube a altura y solo se fusiona si coinciden exactamente SKU, lote, fabricación y vencimiento.</p></div>}
       </section>
+
+      {dataset.importSummary && capabilities && (
+        <section className="translation-panel">
+          <div className="translation-heading"><span><Sparkles size={19} /></span><div><strong>Traducción empresarial aplicada</strong><p>Hoja «{dataset.importSummary.sheetName}» · encabezados en fila {dataset.importSummary.headerRow} · {dataset.importSummary.dataRows} registros procesados</p></div></div>
+          <div className="translation-capabilities">
+            <span className="available"><CheckCircle2 size={14} /> SKU y cantidades</span>
+            <span className={capabilities.location ? "available" : "missing"}>{capabilities.location ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />} Ubicaciones</span>
+            <span className={capabilities.demand ? "available" : "missing"}>{capabilities.demand ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />} Demanda</span>
+            <span className={capabilities.unitCost ? "available" : "missing"}>{capabilities.unitCost ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />} Costes</span>
+            <span className={capabilities.family ? "available" : "missing"}>{capabilities.family ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />} Familias</span>
+            <span className={capabilities.hazardous ? "available" : "missing"}>{capabilities.hazardous ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />} APQ</span>
+            <span className={capabilities.pendingPicking ? "available" : "missing"}>{capabilities.pendingPicking ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />} Pedidos pendientes</span>
+          </div>
+        </section>
+      )}
 
       {!!dataset.warnings.length && (
         <section className="warehouse-warning-list"><CircleAlert size={19} /><div><strong>Observaciones de la importación</strong>{dataset.warnings.slice(0, 4).map((warning) => <p key={warning}>{warning}</p>)}</div></section>
@@ -446,49 +491,77 @@ function WarehouseView({
 
       <section className="panel warehouse-map-panel">
         <div className="warehouse-toolbar">
-          <label className="search-box warehouse-search"><Search size={18} /><span className="sr-only">Buscar ubicación, SKU o lote</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar ubicación, SKU, producto o lote" /></label>
-          <label className="select-box"><span className="sr-only">Filtrar pasillo</span><select value={aisleFilter} onChange={(event) => setAisleFilter(event.target.value)}><option value="all">Todos los pasillos</option>{Array.from({ length: dataset.config.aisleCount }, (_, index) => <option key={index + 1} value={index + 1}>Pasillo {index + 1}</option>)}</select></label>
-          <label className="select-box"><span className="sr-only">Filtrar familia</span><select value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value)}><option value="all">Todas las familias</option>{families.map((family) => <option key={family} value={family}>{family}</option>)}</select></label>
-          <label className="select-box"><span className="sr-only">Filtrar ocupación</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todas</option><option value="occupied">Ocupadas</option><option value="empty">Vacías</option><option value="picking">Con picking</option><option value="apq">Solo APQ</option></select></label>
+          <label className="search-box warehouse-search"><Search size={18} /><span className="sr-only">Buscar ubicación, SKU o lote</span><input value={query} onChange={(event) => { setQuery(event.target.value); setSourcePage(0); }} placeholder="Buscar ubicación, SKU, producto o lote" /></label>
+          {!sourceMode && <label className="select-box"><span className="sr-only">Filtrar pasillo</span><select value={aisleFilter} onChange={(event) => { setAisleFilter(event.target.value); setSourcePage(0); }}><option value="all">Todos los pasillos</option>{Array.from({ length: dataset.config.aisleCount }, (_, index) => <option key={index + 1} value={index + 1}>Pasillo {index + 1}</option>)}</select></label>}
+          <label className="select-box"><span className="sr-only">Filtrar familia</span><select value={familyFilter} onChange={(event) => { setFamilyFilter(event.target.value); setSourcePage(0); }}><option value="all">Todas las familias</option>{families.map((family) => <option key={family} value={family}>{family}</option>)}</select></label>
+          <label className="select-box"><span className="sr-only">Filtrar ocupación</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setSourcePage(0); }}><option value="all">Todas</option><option value="occupied">Ocupadas</option>{(!sourceMode || summary.empty > 0) && <option value="empty">Vacías confirmadas</option>}<option value="picking">Con picking</option><option value="apq">Solo APQ</option></select></label>
         </div>
-        <div className="warehouse-legend"><span><i className="legend-dot empty" /> Vacía</span><span><i className="legend-dot occupied" /> Ocupada</span><span><i className="legend-dot picking" /> Picking pendiente</span><span><i className="legend-dot apq" /> APQ</span></div>
-        <div className="aisle-stack">
-          {visibleAisles.map((aisle) => {
-            const aisleLocations = locations.filter((location) => location.aisle === aisle);
-            const aisleFamily = dataset.aisleFamilies[aisle] || (dataset.config.apqAisles.includes(aisle) ? "APQ" : "Sin asignar");
-            return (
-              <article className={`aisle-card ${dataset.config.apqAisles.includes(aisle) ? "aisle-apq" : ""}`} key={aisle}>
-                <div className="aisle-heading"><div><span>Pasillo {String(aisle).padStart(2, "0")}</span><strong>{aisleFamily}</strong></div><small>{aisleLocations.filter((location) => location.contents.length).length}/{aisleLocations.length} ocupadas</small></div>
-                <div className="rack-scroll">
-                  <div className="rack-grid" style={{ gridTemplateColumns: `72px repeat(${dataset.config.baysPerAisle}, minmax(126px, 1fr))` }}>
-                    <div className="rack-corner">Altura</div>
-                    {Array.from({ length: dataset.config.baysPerAisle }, (_, index) => <div className="rack-bay-label" key={`bay-${index + 1}`}>Módulo {String(index + 1).padStart(2, "0")}</div>)}
-                    {Array.from({ length: dataset.config.levelCount }, (_, index) => dataset.config.levelCount - index).flatMap((level) => [
-                      <div className="rack-level-label" key={`level-${level}`}>{level === 1 ? "Suelo" : `A${level}`}</div>,
-                      ...Array.from({ length: dataset.config.baysPerAisle }, (_, bayIndex) => {
-                        const location = aisleLocations.find((item) => item.level === level && item.bay === bayIndex + 1) as WarehouseLocation;
-                        const matched = matchesLocation(location);
-                        const first = location.contents[0];
-                        return (
-                          <button
-                            className={`location-slot ${location.contents.length ? "occupied" : "empty"} ${location.zone === "APQ" ? "apq" : ""} ${location.pendingPicking ? "has-picking" : ""} ${matched ? "" : "filtered"}`}
-                            key={location.code}
-                            onClick={() => setSelectedLocation(location)}
-                            type="button"
-                          >
-                            <span className="location-code">{location.code}</span>
-                            {first ? <><strong>{first.sku}</strong><span>{decimal.format(location.quantity)} ud. · Lote {first.batch || "—"}</span>{location.pendingPicking > 0 && <b><ListChecks size={12} /> Salen {decimal.format(location.pendingPicking)}</b>}</> : <><PackageOpen size={17} /><span>Libre</span></>}
-                          </button>
-                        );
-                      }),
-                    ])}
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-          {!visibleAisles.length && <div className="empty-state warehouse-empty"><Search size={24} /><strong>No hay ubicaciones que coincidan</strong><span>Cambia los filtros o el término de búsqueda.</span></div>}
-        </div>
+        {sourceMode ? (
+          <>
+            <div className="warehouse-legend source-legend"><span><i className="legend-dot occupied" /> Ubicación confirmada</span><span><i className="legend-dot picking" /> Picking pendiente</span><span><i className="legend-dot apq" /> APQ</span><small>Se conserva exactamente el código del sistema de origen.</small></div>
+            <div className="table-scroll source-location-scroll">
+              <table className="source-location-table">
+                <thead><tr><th>Ubicación original</th><th>Zona</th><th>SKU / Producto</th><th>Cantidad</th><th>Lote / Vencimiento</th><th>Calidad</th><th>Picking próximo</th></tr></thead>
+                <tbody>
+                  {sourceVisible.map((location) => (
+                    <tr key={location.code} onClick={() => setSelectedLocation(location)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && setSelectedLocation(location)}>
+                      <td><code className="source-location-code">{location.sourceCode || "Sin ubicación informada"}</code><small>{location.logicalCode ? `Coordenada interna ${location.logicalCode}` : ""}</small></td>
+                      <td>{location.sourceCode ? <span className={`zone-chip ${location.zone.toLowerCase()}`}>{location.zone}</span> : <span className="data-missing">No informada</span>}</td>
+                      <td><div className="source-stock-stack">{location.contents.slice(0, 3).map((stock) => <span key={stock.id}><strong>{stock.sku}</strong><small>{stock.product}</small></span>)}{location.contents.length > 3 && <em>+{location.contents.length - 3} registros</em>}</div></td>
+                      <td><strong>{decimal.format(location.quantity)} ud.</strong></td>
+                      <td><div className="source-lot-stack">{location.contents.slice(0, 3).map((stock) => <span key={stock.id}>{stock.batch || "Sin lote"}<small>{stock.expiryDate || "Vencimiento no informado"}</small></span>)}</div></td>
+                      <td><div className="source-quality-stack">{location.contents.some((stock) => stock.qualityGrade || stock.holdCode) ? location.contents.slice(0, 3).map((stock) => <span key={stock.id}>{stock.qualityGrade || "—"}{stock.holdCode ? ` · ${stock.holdCode}` : ""}</span>) : <span>—</span>}</div></td>
+                      <td>{capabilities?.pendingPicking === false ? <span className="data-missing">No informado</span> : location.pendingPicking > 0 ? <span className="pending-pill"><ListChecks size={13} /> {decimal.format(location.pendingPicking)} ud.</span> : <span>0 ud.</span>}</td>
+                    </tr>
+                  ))}
+                  {!sourceVisible.length && <tr><td colSpan={7}><div className="empty-state warehouse-empty"><Search size={24} /><strong>No hay ubicaciones que coincidan</strong><span>Cambia los filtros o el término de búsqueda.</span></div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {!!sourceFiltered.length && <div className="source-pagination"><span>Mostrando {safeSourcePage * sourcePageSize + 1}–{Math.min((safeSourcePage + 1) * sourcePageSize, sourceFiltered.length)} de {sourceFiltered.length} ubicaciones</span><div><button disabled={safeSourcePage === 0} onClick={() => setSourcePage(Math.max(0, safeSourcePage - 1))} type="button">Anterior</button><strong>{safeSourcePage + 1} / {sourcePages}</strong><button disabled={safeSourcePage >= sourcePages - 1} onClick={() => setSourcePage(Math.min(sourcePages - 1, safeSourcePage + 1))} type="button">Siguiente</button></div></div>}
+          </>
+        ) : (
+          <>
+            <div className="warehouse-legend"><span><i className="legend-dot empty" /> Vacía</span><span><i className="legend-dot occupied" /> Ocupada</span><span><i className="legend-dot picking" /> Picking pendiente</span><span><i className="legend-dot apq" /> APQ</span></div>
+            <div className="aisle-stack">
+              {visibleAisles.map((aisle) => {
+                const aisleLocations = locations.filter((location) => location.aisle === aisle);
+                const aisleFamily = dataset.aisleFamilies[aisle] || (dataset.config.apqAisles.includes(aisle) ? "APQ" : "Sin asignar");
+                return (
+                  <article className={`aisle-card ${dataset.config.apqAisles.includes(aisle) ? "aisle-apq" : ""}`} key={aisle}>
+                    <div className="aisle-heading"><div><span>Pasillo {String(aisle).padStart(2, "0")}</span><strong>{aisleFamily}</strong></div><small>{aisleLocations.filter((location) => location.contents.length).length}/{aisleLocations.length} ocupadas</small></div>
+                    <div className="rack-scroll">
+                      <div className="rack-grid" style={{ gridTemplateColumns: `72px repeat(${dataset.config.baysPerAisle}, minmax(126px, 1fr))` }}>
+                        <div className="rack-corner">Altura</div>
+                        {Array.from({ length: dataset.config.baysPerAisle }, (_, index) => <div className="rack-bay-label" key={`bay-${index + 1}`}>Módulo {String(index + 1).padStart(2, "0")}</div>)}
+                        {Array.from({ length: dataset.config.levelCount }, (_, index) => dataset.config.levelCount - index).flatMap((level) => [
+                          <div className="rack-level-label" key={`level-${level}`}>{level === 1 ? "Suelo" : `A${level}`}</div>,
+                          ...Array.from({ length: dataset.config.baysPerAisle }, (_, bayIndex) => {
+                            const location = aisleLocations.find((item) => item.level === level && item.bay === bayIndex + 1) as WarehouseLocation;
+                            const matched = matchesLocation(location);
+                            const first = location.contents[0];
+                            return (
+                              <button
+                                className={`location-slot ${location.contents.length ? "occupied" : "empty"} ${location.zone === "APQ" ? "apq" : ""} ${location.pendingPicking ? "has-picking" : ""} ${matched ? "" : "filtered"}`}
+                                key={location.code}
+                                onClick={() => setSelectedLocation(location)}
+                                type="button"
+                              >
+                                <span className="location-code">{location.code}</span>
+                                {first ? <><strong>{first.sku}</strong><span>{decimal.format(location.quantity)} ud. · Lote {first.batch || "—"}</span>{location.pendingPicking > 0 && <b><ListChecks size={12} /> Salen {decimal.format(location.pendingPicking)}</b>}</> : <><PackageOpen size={17} /><span>Libre</span></>}
+                              </button>
+                            );
+                          }),
+                        ])}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+              {!visibleAisles.length && <div className="empty-state warehouse-empty"><Search size={24} /><strong>No hay ubicaciones que coincidan</strong><span>Cambia los filtros o el término de búsqueda.</span></div>}
+            </div>
+          </>
+        )}
       </section>
 
       <section className="panel movement-panel">
@@ -502,12 +575,12 @@ function WarehouseView({
                 const Icon = meta.icon;
                 return <tr key={move.id}><td><span className={`movement-type ${meta.tone}`}><Icon size={16} />{meta.label}</span></td><td><span className="sku-line">{move.sku}</span><span className="product-line">{move.product}</span></td><td><strong>{decimal.format(move.quantity)} ud.</strong></td><td><code>{move.from}</code></td><td>{move.to ? <code>{move.to}</code> : <span className="no-target">Sin hueco</span>}</td><td><strong>{move.title}</strong><p>{move.reason}</p><small>{move.lotRule}</small></td></tr>;
               })}
-              {!moves.length && <tr><td colSpan={6}><div className="empty-state"><CheckCircle2 size={24} /><strong>Distribución equilibrada</strong><span>No se requieren movimientos de altura o reposición.</span></div></td></tr>}
+              {!moves.length && <tr><td colSpan={6}><div className="empty-state">{capabilities?.demand === false || capabilities?.completeLayout === false ? <CircleAlert size={24} /> : <CheckCircle2 size={24} />}<strong>{capabilities?.demand === false ? "Recomendaciones pausadas" : capabilities?.completeLayout === false ? "Falta el maestro completo de ubicaciones" : "Distribución equilibrada"}</strong><span>{capabilities?.demand === false ? "Añade demanda, consumo mensual o pedidos para calcular sobrestock y reposición." : capabilities?.completeLayout === false ? "Carga también los huecos vacíos y capacidades para proponer destinos reales." : "No se requieren movimientos de altura o reposición."}</span></div></td></tr>}
             </tbody>
           </table>
         </div>
       </section>
-      <WarehouseLocationDrawer location={selectedLocation} onClose={() => setSelectedLocation(null)} />
+      <WarehouseLocationDrawer location={selectedLocation} pendingKnown={capabilities?.pendingPicking !== false} onClose={() => setSelectedLocation(null)} />
     </div>
   );
 }
@@ -524,6 +597,7 @@ function ActionsView({
   const [filter, setFilter] = useState("all");
   const filtered = filter === "all" ? items : items.filter((item) => item.status === filter);
   const classACritical = items.filter((item) => item.status === "critical" && item.abcClass === "A").length;
+  const hasDemand = items.some((item) => item.demandAvailable);
 
   return (
     <div className="view-enter section-view">
@@ -537,7 +611,7 @@ function ActionsView({
       </div>
       <section className="insight-banner">
         <span className="insight-icon"><Sparkles size={22} /></span>
-        <div><strong>{classACritical || "Ninguna"} decisiones clase A requieren atención inmediata</strong><p>La prioridad combina cobertura, plazo de entrega, valor de consumo y stock de seguridad.</p></div>
+        <div><strong>{hasDemand ? `${classACritical} decisiones clase A requieren atención inmediata` : "Priorización de roturas y sobrestock pendiente"}</strong><p>{hasDemand ? "La prioridad combina cobertura, plazo de entrega, valor de consumo y stock de seguridad." : "Las cantidades físicas ya están disponibles; añade demanda para activar las recomendaciones operativas."}</p></div>
       </section>
       <section className="panel">
         <div className="panel-filter-row">
@@ -581,9 +655,19 @@ function SimulatorView({
 }) {
   const [demand, setDemand] = useState(18);
   const [delay, setDelay] = useState(7);
+  const hasDemand = baseline.items.some((item) => item.demandAvailable);
   const projected = useMemo(() => simulateInventory(inventory, demand, delay), [inventory, demand, delay]);
   const impactItems = projected.items.filter((item) => item.status !== "stable").slice(0, 6);
   const signedDemand = `${demand > 0 ? "+" : ""}${demand} %`;
+
+  if (!hasDemand) {
+    return (
+      <div className="view-enter section-view">
+        <div className="section-heading simulator-heading"><div><p className="eyebrow">Escenarios operativos</p><h1>Simulador</h1><p>Anticípate a cambios de demanda y retrasos de proveedores.</p></div></div>
+        <section className="panel simulator-unavailable"><CircleAlert size={30} /><strong>El simulador necesita demanda real</strong><p>Importa consumo mensual, ventas históricas o pedidos previstos. StockFlow no convertirá la ausencia de esa información en una demanda de cero.</p></section>
+      </div>
+    );
+  }
 
   return (
     <div className="view-enter section-view">
@@ -785,15 +869,25 @@ function UploadModal({
   open,
   processing,
   errors,
+  draft,
+  mapping,
   onClose,
   onImport,
+  onStructureChange,
+  onMappingChange,
+  onConfirm,
   onDownloadTemplate,
 }: {
   open: boolean;
   processing: boolean;
   errors: string[];
+  draft: UniversalImportDraft | null;
+  mapping: UniversalMapping | null;
   onClose: () => void;
   onImport: (file: File) => Promise<void>;
+  onStructureChange: (sheetName: string, headerRowIndex?: number) => void;
+  onMappingChange: (field: keyof UniversalMapping, column: number | null) => void;
+  onConfirm: () => void;
   onDownloadTemplate: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -810,20 +904,66 @@ function UploadModal({
     if (file) void onImport(file);
   };
 
+  const mappingReady = Boolean(mapping && mapping.sku !== null && mapping.quantity !== null);
+  const mappedCount = mapping ? UNIVERSAL_EDITABLE_FIELDS.filter((field) => mapping[field] !== null).length : 0;
+  const selectColumn = (field: keyof UniversalMapping, label: string) => (
+    <label className="mapping-field" key={field}>
+      <span>{label}</span>
+      <select
+        value={mapping?.[field] ?? ""}
+        onChange={(event) => onMappingChange(field, event.target.value === "" ? null : Number(event.target.value))}
+      >
+        <option value="">No disponible</option>
+        {draft?.columns.map((column) => <option key={`${field}-${column.index}`} value={column.index}>{column.label} · ej. {column.sample}</option>)}
+      </select>
+    </label>
+  );
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section aria-labelledby="upload-title" aria-modal="true" className="modal-card" role="dialog">
         <button className="modal-close" aria-label="Cerrar importación" onClick={onClose} type="button"><X size={20} /></button>
         <span className="modal-icon"><FileSpreadsheet size={26} /></span>
-        <h2 id="upload-title">Analiza tu inventario</h2>
-        <p>Sube un Excel o CSV con una fila por ubicación ocupada. StockFlow IA generará también todos los huecos vacíos del almacén.</p>
-        <div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>
-          <Upload size={30} aria-hidden="true" />
-          <strong>Arrastra aquí tu archivo Excel o CSV</strong>
-          <span>o selecciónalo desde tu dispositivo</span>
-          <button className="primary-button compact" disabled={processing} onClick={() => inputRef.current?.click()} type="button">{processing ? <RefreshCw className="spin" size={18} /> : <Upload size={18} />}{processing ? "Analizando…" : "Seleccionar archivo"}</button>
-          <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.csv,text/csv,.txt" onChange={selectFile} />
-        </div>
+        <h2 id="upload-title">Traductor universal de inventarios</h2>
+        <p>Detecta hojas, encabezados y nombres de columnas de diferentes ERP. Revisa la traducción antes de incorporar los datos.</p>
+        {!draft ? (
+          <div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>
+            <Upload size={30} aria-hidden="true" />
+            <strong>Arrastra aquí cualquier Excel o CSV</strong>
+            <span>StockFlow IA buscará automáticamente la tabla principal</span>
+            <button className="primary-button compact" disabled={processing} onClick={() => inputRef.current?.click()} type="button">{processing ? <RefreshCw className="spin" size={18} /> : <Upload size={18} />}{processing ? "Interpretando…" : "Seleccionar archivo"}</button>
+          </div>
+        ) : (
+          <div className="mapping-assistant">
+            <div className="mapping-summary">
+              <span className="mapping-summary-icon"><Sparkles size={20} /></span>
+              <div><strong>Formato empresarial detectado</strong><p>Hoja «{draft.sheetName}» · encabezados en fila {draft.headerRowIndex + 1} · {draft.dataRowCount} filas · {mappedCount} campos reconocidos</p></div>
+              <button className="text-action" disabled={processing} onClick={() => inputRef.current?.click()} type="button">Cambiar archivo</button>
+            </div>
+            <div className="mapping-source-controls">
+              <label><span>Hoja de datos</span><select value={draft.sheetName} onChange={(event) => onStructureChange(event.target.value)}>{draft.sheetOptions.map((sheet) => <option key={sheet.name} value={sheet.name}>{sheet.name} · {sheet.rowCount} filas</option>)}</select></label>
+              <label><span>Fila de encabezados</span><input min="1" max={Math.max(1, draft.rows.length)} type="number" value={draft.headerRowIndex + 1} onChange={(event) => onStructureChange(draft.sheetName, Math.max(0, Number(event.target.value || 1) - 1))} /></label>
+              <p><Info size={14} /> Si la detección no coincide con tu archivo, corrige estos dos datos y vuelve a revisar las columnas.</p>
+            </div>
+            {!!draft.warnings.length && <div className="mapping-notes">{draft.warnings.map((warning) => <span key={warning}><Info size={14} />{warning}</span>)}</div>}
+            <div className="mapping-required-note"><CheckCircle2 size={17} /><span>Solo SKU y cantidad son imprescindibles. Los demás campos pueden añadirse después sin inventar datos.</span></div>
+            <div className="mapping-grid">
+              {UNIVERSAL_EDITABLE_FIELDS.map((field) => selectColumn(field, UNIVERSAL_FIELD_LABELS[field]))}
+            </div>
+            <div className="location-builder">
+              <div><strong>Construcción de la ubicación</strong><p>Si la dirección está dividida en varias columnas, selecciona la primera y la última. StockFlow conservará el código original completo.</p></div>
+              <div className="location-builder-fields">
+                {selectColumn("locationStart", "Primera columna")}
+                {selectColumn("locationEnd", "Última columna")}
+              </div>
+            </div>
+            <div className="mapping-confirm-row">
+              <span><ShieldCheck size={16} /> La correspondencia de este formato se recordará en este dispositivo.</span>
+              <button className="primary-button compact" disabled={!mappingReady || processing} onClick={onConfirm} type="button">{processing ? <RefreshCw className="spin" size={18} /> : <ArrowRight size={18} />}{processing ? "Traduciendo…" : "Traducir e importar"}</button>
+            </div>
+          </div>
+        )}
+        <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.csv,text/csv,.txt" onChange={selectFile} />
         {!!errors.length && <div className="upload-errors" role="alert"><strong>Revisa el archivo:</strong><ul>{errors.map((error) => <li key={error}>{error}</li>)}</ul></div>}
         <div className="modal-actions">
           <button className="template-button" onClick={onDownloadTemplate} type="button"><Download size={17} /> Descargar plantilla Excel</button>
@@ -844,21 +984,20 @@ function DetailDrawer({ item, onClose }: { item: AnalyzedInventoryItem | null; o
         <h2 id="detail-title">{item.product}</h2>
         <div className="drawer-meta"><span>{item.sku}</span><span>Clase {item.abcClass}</span><PriorityBadge status={item.status} label={item.statusLabel} /></div>
         <section className="decision-card">
-          <span>Acción recomendada</span><strong>{item.recommendation}</strong><p>{item.situation}. La recomendación se basa en demanda, cobertura, plazo de entrega y stock de seguridad.</p>
+          <span>Acción recomendada</span><strong>{item.recommendation}</strong><p>{item.situation}. {item.demandAvailable ? "La recomendación se basa en demanda, cobertura, plazo de entrega y stock de seguridad." : "La aplicación ha detenido los cálculos que requieren demanda hasta disponer de un dato real."}</p>
         </section>
         <div className="detail-metrics">
           <article><span>Stock actual</span><strong>{decimal.format(item.currentStock)} ud.</strong></article>
-          <article><span>Demanda media</span><strong>{decimal.format(item.averageMonthlyDemand)} ud./mes</strong></article>
-          <article><span>Cobertura</span><strong>{coverageLabel(item.coverageDays)}</strong></article>
-          <article><span>Punto de pedido</span><strong>{decimal.format(item.reorderPoint)} ud.</strong></article>
-          <article><span>Rotación mensual</span><strong>{decimal.format(item.rotationMonthly)}×</strong></article>
-          <article><span>Valor en stock</span><strong>{currency.format(item.stockValue)}</strong></article>
+          <article><span>Demanda media</span><strong>{item.demandAvailable ? `${decimal.format(item.averageMonthlyDemand)} ud./mes` : "No disponible"}</strong></article>
+          <article><span>Cobertura</span><strong>{coverageLabel(item.coverageDays, item.demandAvailable)}</strong></article>
+          <article><span>Punto de pedido</span><strong>{item.demandAvailable ? `${decimal.format(item.reorderPoint)} ud.` : "No disponible"}</strong></article>
+          <article><span>Rotación mensual</span><strong>{item.demandAvailable ? `${decimal.format(item.rotationMonthly)}×` : "No disponible"}</strong></article>
+          <article><span>Valor en stock</span><strong>{item.unitCostAvailable ? currency.format(item.stockValue) : "No disponible"}</strong></article>
         </div>
         <section className="formula-card">
           <h3>Cómo se calcula</h3>
-          <p><strong>Cobertura:</strong> stock actual ÷ demanda diaria media.</p>
-          <p><strong>Punto de pedido:</strong> demanda durante el plazo de entrega + stock de seguridad.</p>
-          <p><strong>ABC:</strong> valor de consumo acumulado de cada referencia.</p>
+          {item.demandAvailable ? <><p><strong>Cobertura:</strong> stock actual ÷ demanda diaria media.</p><p><strong>Punto de pedido:</strong> demanda durante el plazo de entrega + stock de seguridad.</p></> : <p><strong>Cálculo pausado:</strong> falta demanda o consumo verificable.</p>}
+          <p><strong>ABC:</strong> {item.demandAvailable && item.unitCostAvailable ? "valor de consumo acumulado de cada referencia." : "requiere demanda y coste unitario."}</p>
         </section>
       </aside>
     </div>
@@ -874,6 +1013,9 @@ export default function Home() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [importDraft, setImportDraft] = useState<UniversalImportDraft | null>(null);
+  const [importMapping, setImportMapping] = useState<UniversalMapping | null>(null);
+  const [importFileName, setImportFileName] = useState("");
   const [selectedItem, setSelectedItem] = useState<AnalyzedInventoryItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [countPlan, setCountPlan] = useState<CycleCountPlan>({
@@ -900,6 +1042,39 @@ export default function Home() {
     window.setTimeout(() => setToast(null), 3600);
   };
 
+  const closeUpload = () => {
+    if (processing) return;
+    setUploadOpen(false);
+    setUploadErrors([]);
+    setImportDraft(null);
+    setImportMapping(null);
+    setImportFileName("");
+  };
+
+  const loadRememberedMapping = (draft: UniversalImportDraft) => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(IMPORT_PROFILE_KEY) || "{}") as Record<string, UniversalMapping>;
+      const remembered = stored[draft.profileSignature];
+      if (!remembered) return draft.mapping;
+      const validEntries = Object.fromEntries(Object.entries(remembered).map(([key, value]) => [
+        key,
+        typeof value === "number" && value >= 0 && value < draft.columns.length ? value : null,
+      ]));
+      return { ...draft.mapping, ...validEntries } as UniversalMapping;
+    } catch {
+      return draft.mapping;
+    }
+  };
+
+  const rememberMapping = (draft: UniversalImportDraft, mapping: UniversalMapping) => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(IMPORT_PROFILE_KEY) || "{}") as Record<string, UniversalMapping>;
+      window.localStorage.setItem(IMPORT_PROFILE_KEY, JSON.stringify({ ...stored, [draft.profileSignature]: mapping }));
+    } catch {
+      // La importación sigue funcionando aunque el navegador bloquee el almacenamiento local.
+    }
+  };
+
   const importFile = async (file: File) => {
     setProcessing(true);
     setUploadErrors([]);
@@ -913,28 +1088,94 @@ export default function Home() {
         setUploadErrors(["El archivo supera 10 MB. Divide el inventario en un archivo más pequeño."]);
         return;
       }
-      let parsed: ReturnType<typeof parseWarehouseCsv>;
+      let sheets: Array<{ name: string; rows: unknown[][] }>;
       if (extension === "xlsx") {
-        const { readSheet } = await import("read-excel-file/browser");
-        const rows = await readSheet(file);
-        parsed = parseWarehouseRows(rows);
+        const { default: readWorkbook } = await import("read-excel-file/browser");
+        const workbookSheets = await readWorkbook(file) as Array<{ sheet: string; data: unknown[][] }>;
+        sheets = workbookSheets.map((sheet) => ({ name: sheet.sheet, rows: sheet.data }));
       } else {
-        parsed = parseWarehouseCsv(await file.text());
+        const text = await file.text();
+        const cleanText = text.replace(/^\uFEFF/, "").trim();
+        const lines = cleanText.split(/\r?\n/).filter((line) => line.trim());
+        const delimiter = ((lines[0] ?? "").match(/;/g) ?? []).length >= ((lines[0] ?? "").match(/,/g) ?? []).length ? ";" : ",";
+        const parseLine = (line: string) => {
+          const cells: string[] = [];
+          let current = "";
+          let quoted = false;
+          for (let index = 0; index < line.length; index += 1) {
+            const character = line[index];
+            if (character === '"') {
+              if (quoted && line[index + 1] === '"') { current += '"'; index += 1; }
+              else quoted = !quoted;
+            } else if (character === delimiter && !quoted) { cells.push(current.trim()); current = ""; }
+            else current += character;
+          }
+          cells.push(current.trim());
+          return cells;
+        };
+        sheets = [{ name: "Datos", rows: lines.map(parseLine) }];
       }
+      const draft = analyzeUniversalWorkbook(sheets);
+      setImportDraft(draft);
+      setImportMapping(loadRememberedMapping(draft));
+      setImportFileName(file.name.replace(/\.[^.]+$/, ""));
+    } catch {
+      setUploadErrors(["No pudimos leer el archivo. Comprueba su formato e inténtalo de nuevo."]);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const changeImportMapping = (field: keyof UniversalMapping, column: number | null) => {
+    setImportMapping((current) => {
+      if (!current) return current;
+      const next = { ...current, [field]: column };
+      if (field === "locationStart" && column !== null && next.locationEnd === null) next.locationEnd = column;
+      if (field === "locationEnd" && column !== null && next.locationStart === null) next.locationStart = column;
+      if (next.locationStart !== null && next.locationEnd !== null && next.locationEnd < next.locationStart) {
+        if (field === "locationStart") next.locationEnd = column;
+        else next.locationStart = column;
+      }
+      return next;
+    });
+  };
+
+  const changeImportStructure = (sheetName: string, headerRowIndex?: number) => {
+    if (!importDraft) return;
+    try {
+      const nextDraft = reanalyzeUniversalDraft(importDraft, sheetName, headerRowIndex);
+      setImportDraft(nextDraft);
+      setImportMapping(loadRememberedMapping(nextDraft));
+      setUploadErrors([]);
+    } catch {
+      setUploadErrors(["No pudimos interpretar la hoja o la fila seleccionada."]);
+    }
+  };
+
+  const confirmUniversalImport = () => {
+    if (!importDraft || !importMapping) return;
+    setProcessing(true);
+    setUploadErrors([]);
+    try {
+      const parsed = translateUniversalDraft(importDraft, importMapping);
       if (parsed.errors.length || !parsed.items.length || !parsed.dataset) {
         setUploadErrors(parsed.errors.length ? parsed.errors : ["No se encontraron productos válidos."]);
         return;
       }
+      rememberMapping(importDraft, importMapping);
       setInventory(parsed.items);
       setWarehouse(parsed.dataset);
-      setDatasetName(file.name.replace(/\.[^.]+$/, ""));
+      setDatasetName(importFileName || "Inventario importado");
       setCountEntriesByCampaign({});
       setCompletedCampaigns([]);
       setUploadOpen(false);
-      setActiveView("almacen");
-      showToast(`${parsed.items.length} SKU y ${buildWarehouseLocations(parsed.dataset).length} ubicaciones generadas`);
-    } catch {
-      setUploadErrors(["No pudimos leer el archivo. Comprueba su formato e inténtalo de nuevo."]);
+      setImportDraft(null);
+      setImportMapping(null);
+      const translatedLocations = buildWarehouseLocations(parsed.dataset);
+      setActiveView(parsed.dataset.capabilities?.location === false ? "inventario" : "almacen");
+      showToast(parsed.dataset.capabilities?.location === false
+        ? `${parsed.items.length} SKU traducidos; las ubicaciones no estaban incluidas`
+        : `${parsed.items.length} SKU y ${translatedLocations.length} ubicaciones traducidas`);
     } finally {
       setProcessing(false);
     }
@@ -1050,7 +1291,19 @@ export default function Home() {
         {activeView === "conteos" && <CyclicCountsView items={analysis.items} plan={countPlan} entries={countEntriesByCampaign[activeCampaignId] ?? {}} activeCampaignId={activeCampaignId} completedCampaigns={completedCampaigns} onPlanChange={setCountPlan} onEntryChange={(sku, value) => setCountEntriesByCampaign((current) => ({ ...current, [activeCampaignId]: { ...(current[activeCampaignId] ?? {}), [sku]: value } }))} onCampaignChange={setActiveCampaignId} onFillSample={fillCountSample} onReset={resetCount} onComplete={completeCount} onNotify={showToast} />}
       </section>
 
-      <UploadModal open={uploadOpen} processing={processing} errors={uploadErrors} onClose={() => setUploadOpen(false)} onImport={importFile} onDownloadTemplate={downloadWarehouseTemplate} />
+      <UploadModal
+        open={uploadOpen}
+        processing={processing}
+        errors={uploadErrors}
+        draft={importDraft}
+        mapping={importMapping}
+        onClose={closeUpload}
+        onImport={importFile}
+        onStructureChange={changeImportStructure}
+        onMappingChange={changeImportMapping}
+        onConfirm={confirmUniversalImport}
+        onDownloadTemplate={downloadWarehouseTemplate}
+      />
       <DetailDrawer item={selectedItem} onClose={() => setSelectedItem(null)} />
       {toast && <div className="toast" role="status"><CheckCircle2 size={18} />{toast}</div>}
     </main>

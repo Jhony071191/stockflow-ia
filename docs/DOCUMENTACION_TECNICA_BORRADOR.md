@@ -8,7 +8,7 @@ StockFlow IA es una aplicación web que transforma datos básicos de inventario 
 
 Su propuesta de valor se resume en una frase:
 
-**“Convierte cualquier hoja de inventario en un plan de acción comprensible en menos de un minuto.”**
+**“Traduce el formato de inventario de cada empresa y lo convierte en decisiones comprensibles.”**
 
 La aplicación no pretende reemplazar un ERP. Su objetivo es hacer accesible el análisis de inventario a usuarios que no disponen de herramientas avanzadas ni conocimientos analíticos.
 
@@ -35,15 +35,23 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 
 ## 4. Funcionalidades principales
 
-### 4.1 Importación y validación Excel/CSV
+### 4.1 Traductor universal de Excel/CSV
 
 - Carga mediante selector o arrastrar y soltar.
 - Acepta Excel `.xlsx` y CSV con delimitadores por coma o punto y coma.
-- Reconoce alias habituales de columnas en español.
-- Valida encabezados obligatorios y campos numéricos.
+- Examina todas las hojas y elige la tabla de inventario con mayor confianza.
+- Localiza la fila real de encabezados aunque existan títulos o metadatos anteriores.
+- Reconoce alias habituales de ERP/WMS en español, inglés, francés y otros formatos frecuentes.
+- Combina encabezados y muestras de valores para diferenciar, por ejemplo, una zona de una ubicación completa.
+- Reconstruye direcciones logísticas divididas en varias columnas y conserva el código original.
+- Presenta un asistente de correspondencia editable antes de incorporar los datos.
+- Recuerda localmente la correspondencia de cada estructura de encabezados.
+- Solo exige SKU y cantidad; cualquier otro campo ausente se declara como no disponible.
+- Nunca interpreta un indicador de picking 0/1 como unidades comprometidas.
 - Limita el tamaño del archivo a 10 MB.
 - Incluye una plantilla Excel de dos hojas con datos ficticios e instrucciones.
-- Admite una fila por ubicación ocupada y agrega automáticamente el stock por SKU.
+- Admite una fila por ubicación y agrega automáticamente el stock por SKU.
+- Activa un modo de origen seguro cuando no existe un maestro completo de huecos: muestra únicamente direcciones confirmadas y pausa los destinos no justificables.
 
 ### 4.2 Motor analítico
 
@@ -56,6 +64,7 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 - Pedido sugerido.
 - Valor de existencias.
 - Detección de caducidad próxima.
+- Suspensión explícita de cobertura, sobrestock, reposición, valor y ABC cuando faltan las variables que necesita cada cálculo.
 
 ### 4.3 Centro de acciones
 
@@ -93,9 +102,9 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 
 ### 4.7 Mapa y slotting del almacén
 
-- Generación de todas las ubicaciones del almacén, tanto vacías como ocupadas.
-- Estructura por pasillo, módulo y entre 5 y 7 alturas; la altura 1 representa suelo/picking.
-- Configuración de dimensiones desde el archivo y valores seguros por defecto si no se informan.
+- Generación de ubicaciones vacías y ocupadas cuando el archivo aporta un maestro estructurado del almacén.
+- Estructura por pasillo, módulo y entre 5 y 7 alturas; la altura 1 representa suelo/picking cuando esas coordenadas existen en el archivo.
+- Conservación de la ubicación original y modo de origen seguro cuando no se informa un maestro completo.
 - Distribución visual por grupos familiares.
 - Segregación de pasillos y ubicaciones APQ para mercancía peligrosa.
 - Detalle de ubicación con cantidad, SKU, lote, fabricación, vencimiento y picking pendiente.
@@ -103,9 +112,9 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 - Plan de movimientos con origen, destino, cantidad y motivo explicable.
 - Subida del excedente a altura conservando un mes de demanda disponible en suelo tras el picking.
 - Fusión únicamente cuando coinciden exactamente SKU, lote, fecha de fabricación y fecha de vencimiento.
-- Selección de un hueco vacío compatible cuando la fusión no es posible.
-- Reposición desde reserva hacia una ubicación de suelo compatible, aplicando prioridad de vencimiento.
-- Exportación del mapa completo con filas para ubicaciones vacías y ocupadas.
+- Selección de un hueco vacío compatible cuando la fusión no es posible y el archivo confirma ese hueco.
+- Reposición desde reserva hacia una ubicación de suelo compatible, aplicando prioridad de vencimiento, solo cuando existen los datos necesarios.
+- Exportación del mapa completo si hay maestro o de las ubicaciones de origen confirmadas en los demás casos.
 
 ## 5. Arquitectura
 
@@ -113,12 +122,14 @@ La solución utiliza una arquitectura sin servidor para el tratamiento de los da
 
 1. **Capa de interfaz:** componentes React y estilos responsive.
 2. **Entrada:** archivo Excel o CSV seleccionado por el usuario.
-3. **Validación:** normalización de encabezados, números, fechas, coordenadas y filas.
-4. **Motor analítico:** funciones TypeScript puras y deterministas.
-5. **Motor de almacén:** generación de ubicaciones, segregación APQ y reglas de movimiento.
-6. **Módulo de conteos:** planificación, captura física y conciliación por campaña.
-7. **Presentación:** dashboard, mapa de pasillos, tablas, filtros, explicación y simulador.
-8. **Salida:** análisis, mapa de ubicaciones y actas CSV generados en el navegador.
+3. **Detector:** selección de hoja, fila de encabezados, columnas y muestras.
+4. **Traductor empresarial:** aliases, inferencia por valores, ubicación compuesta, perfil editable y matriz de capacidades.
+5. **Validación:** normalización de números, fechas, coordenadas y filas sin completar datos ausentes.
+6. **Motor analítico:** funciones TypeScript puras y deterministas.
+7. **Motor de almacén:** preservación de ubicaciones de origen o generación estructurada, segregación APQ y reglas de movimiento.
+8. **Módulo de conteos:** planificación, captura física y conciliación por campaña.
+9. **Presentación:** dashboard, mapa o tabla de origen, filtros, explicación y simulador.
+10. **Salida:** análisis, mapa de ubicaciones y actas CSV generados en el navegador.
 
 El inventario se mantiene únicamente en memoria durante la sesión. No se utiliza base de datos ni se transmite el archivo a un servicio externo.
 
@@ -143,6 +154,8 @@ Cada referencia contiene:
 | APQ | Indicador de mercancía peligrosa |
 | Picking pendiente | Unidades comprometidas en pedidos próximos |
 | Capacidad de ubicación | Límite utilizado para proponer destinos |
+
+La matriz de capacidades acompaña a cada importación e indica si están realmente disponibles producto, familia, coste, demanda, ubicación, maestro completo, APQ, fabricación, vencimiento y picking pendiente. La interfaz utiliza esa matriz para decidir qué métricas y recomendaciones puede calcular con rigor.
 
 ## 7. Reglas de cálculo
 
@@ -233,6 +246,11 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 15. Creación del motor de slotting con reglas de un mes en suelo, subida de excedente, fusión exacta y reposición.
 16. Sustitución preventiva de una dependencia Excel con vulnerabilidades conocidas por bibliotecas sin vulnerabilidades propias detectadas.
 17. Añadido de pruebas de Excel real, ubicaciones vacías, APQ, fusión segura y reposición.
+18. Diagnóstico de una extracción WMS real con título previo, encabezados en una fila desplazada, nombres en inglés y ubicación repartida en varios segmentos.
+19. Sustitución del importador rígido por un traductor universal asistido con detección de hoja, encabezados, aliases, muestras y mapeo editable.
+20. Incorporación de perfiles locales por estructura de archivo y modo seguro para datos parciales.
+21. Adaptación de dashboard, inventario, simulador, mapa y exportación para mostrar “No disponible” o “Pendiente” en lugar de inventar ceros.
+22. Seis nuevas pruebas para encabezados desplazados, corrección manual de hoja/fila, ubicación compuesta, múltiples hojas, formato mínimo, datos parciales y maestro completo.
 
 ## 10. Challenges y soluciones
 
@@ -240,13 +258,25 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 
 **Challenge:** construir una solución útil en siete días sin intentar replicar un ERP.
 
-**Solución:** concentrar el producto en una promesa clara: transformar un CSV en decisiones explicadas.
+**Solución:** concentrar el producto en una promesa clara: traducir una tabla de inventario y convertirla en decisiones explicadas.
 
 ### Importar archivos heterogéneos
 
-**Challenge:** los CSV pueden utilizar delimitadores, decimales y nombres de columnas distintos.
+**Challenge:** cada ERP o WMS puede exportar hojas, filas de encabezados, idiomas, nombres y ubicaciones diferentes.
 
-**Solución:** detección de separador, normalización de encabezados, alias en español y mensajes de error por fila.
+**Solución:** detector puntuado de hoja y encabezado, diccionario multilingüe, similitud tolerante, análisis de muestras, constructor de ubicación compuesta y confirmación editable. La correspondencia se recuerda por la firma de encabezados, sin transmitir el archivo.
+
+### Evitar conclusiones falsas con datos parciales
+
+**Challenge:** una extracción física puede contener SKU, lotes y cantidades, pero no coste, demanda, APQ o pedidos pendientes.
+
+**Solución:** solo SKU y cantidad son obligatorios. Una matriz de capacidades pausa cada cálculo que dependa de campos ausentes, muestra el motivo y permite seguir consultando el stock físico.
+
+### Distinguir ubicaciones confirmadas de un maestro completo
+
+**Challenge:** una lista de stock ocupado no demuestra cuántos huecos vacíos existen ni permite proponer destinos reales.
+
+**Solución:** modo de origen para conservar únicamente las ubicaciones incluidas en la extracción y modo estructurado cuando el archivo aporta pasillo, módulo y altura. Los huecos vacíos y movimientos solo se ofrecen cuando hay evidencia suficiente.
 
 ### Generar recomendaciones confiables
 
@@ -297,19 +327,28 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 - Cálculo de progreso, coincidencias y diferencias fuera de tolerancia.
 - Generación de 288 ubicaciones de demostración con huecos vacíos, ocupados y APQ.
 - Importación de múltiples ubicaciones y agregación correcta por SKU.
-- Generación e importación de un archivo Excel real.
+- Generación e importación de un archivo `.xlsx` de prueba.
 - Fusión permitida con lote y fechas idénticos.
 - Bloqueo de fusión cuando cambia la fecha de fabricación.
 - Reposición desde altura hacia una ubicación de suelo.
+- Detección de encabezados desplazados después de títulos y metadatos.
+- Reconstrucción de una ubicación repartida en seis columnas.
+- Selección automática de la hoja de inventario entre varias hojas.
+- Corrección manual de la hoja y fila de encabezados cuando la detección inicial no coincide.
+- Importación segura con solo SKU y cantidad.
+- Conservación del estado “no disponible” cuando una columna existe pero una referencia no contiene demanda o coste.
+- Generación estructurada de huecos cuando existen pasillo, módulo y altura.
 - Navegación accesible mediante botones y teclado.
 - Compatibilidad responsive definida para escritorio, tableta y móvil.
+
+Resultado actual: 18 pruebas lógicas superadas, ESLint sin errores y compilación desplegable correcta.
 
 ## 12. Privacidad, seguridad y ética
 
 - No se solicitan datos personales.
 - No se incluyen credenciales reales.
 - Los datos de demostración son ficticios.
-- El CSV se procesa localmente.
+- Los archivos Excel y CSV se procesan localmente.
 - Las recomendaciones son apoyo a la decisión y muestran sus fundamentos.
 - El usuario conserva la responsabilidad sobre compras y ajustes reales.
 
@@ -319,6 +358,9 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 - No se conecta a un ERP ni a proveedores.
 - El análisis utiliza tres periodos recientes y no sustituye una previsión estadística avanzada.
 - Los costes y plazos dependen de la calidad del archivo proporcionado.
+- La compatibilidad automática cubre formatos tabulares `.xlsx` y CSV; archivos protegidos, corruptos, macros, fórmulas no calculadas o estructuras no tabulares pueden requerir exportación previa o corrección manual del mapeo.
+- La aplicación no puede deducir huecos vacíos que no aparezcan en el archivo ni proponer destinos fiables sin un maestro de ubicaciones y capacidades.
+- Sobrestock, cobertura, reposición y simulación requieren demanda, consumo o pedidos verificables; ABC económico y valor requieren además coste unitario.
 - El mapa es una herramienta de apoyo y no ejecuta movimientos físicos ni escribe en un WMS.
 - La marca APQ evita mezclas generales, pero la compatibilidad química y el cumplimiento normativo deben validarse por personal cualificado.
 
@@ -335,7 +377,7 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 ## 15. Screenshots pendientes de insertar
 
 1. Dashboard principal.
-2. Modal de importación Excel/CSV.
+2. Traductor universal con hoja, fila y mapeo de columnas detectados.
 3. Inventario con clasificación ABC.
 4. Mapa completo del almacén y detalle de ubicación.
 5. Plan de movimientos, fusión y reposición.

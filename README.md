@@ -10,8 +10,11 @@ Pequeños comercios, almacenes y organizaciones suelen disponer de datos de stoc
 
 ## Funcionalidades
 
-- Importación y validación de inventarios Excel (`.xlsx`) y CSV.
-- Generación del mapa completo del almacén, incluidas ubicaciones vacías y ocupadas.
+- Traductor universal de inventarios Excel (`.xlsx`) y CSV: detecta la hoja principal, la fila real de encabezados, alias en varios idiomas y tipos de datos.
+- Asistente de correspondencia editable y perfiles de formato recordados localmente por empresa.
+- Importación segura con solo SKU y cantidad como campos imprescindibles; los datos ausentes nunca se inventan.
+- Generación del mapa completo cuando el archivo contiene el maestro de ubicaciones, incluidas vacías y ocupadas.
+- Modo de ubicaciones de origen cuando la extracción solo contiene posiciones confirmadas: conserva el código exacto y no crea huecos ficticios.
 - Estructura configurable por pasillos, módulos y entre 5 y 7 alturas.
 - Agrupación por familias y segregación visual de ubicaciones APQ.
 - Trazabilidad por ubicación, SKU, lote, fabricación, vencimiento y cantidad.
@@ -30,27 +33,27 @@ Pequeños comercios, almacenes y organizaciones suelen disponer de datos de stoc
 
 ## Flujo principal
 
-1. Descargar la plantilla Excel y registrar una fila por ubicación ocupada.
-2. Indicar pasillo, módulo, altura, lote, fechas, APQ y picking pendiente.
-3. Pulsar **Analizar inventario** y seleccionar el archivo.
-4. Revisar el mapa completo de ubicaciones y el plan de movimientos.
+1. Pulsar **Analizar inventario** y seleccionar un Excel o CSV de la empresa.
+2. Revisar la hoja, fila de encabezados y correspondencia de columnas detectadas.
+3. Confirmar la traducción; solo SKU y cantidad son obligatorios.
+4. Consultar las ubicaciones originales o, si existe un maestro completo, el mapa de huecos vacíos y ocupados.
 5. Consultar indicadores, clasificación ABC y acciones recomendadas.
 6. Probar escenarios o ejecutar conteos cíclicos.
 7. Exportar el análisis, el mapa o el acta.
 
 ## Columnas Excel o CSV
 
-Obligatorias:
+Imprescindibles —el nombre original de la columna puede variar—:
 
 - `sku`
-- `producto`
 - `cantidad_ubicacion` o `stock_actual`
-- `coste_unitario`
-- `demanda_mensual`, o al menos una de `ventas_mes_1`, `ventas_mes_2`, `ventas_mes_3`
 
 Opcionales:
 
+- `producto`
 - `categoria`
+- `coste_unitario`
+- `demanda_mensual`, `consumo_mensual` o `ventas_mes_1`–`ventas_mes_3`
 - `lead_time_dias`
 - `stock_seguridad`
 - `fecha_caducidad`
@@ -61,9 +64,9 @@ Opcionales:
 - `capacidad_ubicacion`
 - `total_pasillos`, `modulos_por_pasillo`, `alturas_almacen`
 
-Se aceptan separadores por punto y coma o coma y distintos alias habituales en español.
+Se aceptan separadores por punto y coma o coma y alias habituales en español, inglés, francés y otros formatos frecuentes de ERP/WMS. Si la detección no es inequívoca, el usuario puede corregir la correspondencia antes de importar; el perfil se recuerda en ese dispositivo.
 
-La plantilla utiliza una fila por ubicación ocupada. Si faltan coordenadas, StockFlow IA asigna huecos automáticamente. Si no se indican las dimensiones, utiliza una demostración de 6 pasillos × 8 módulos × 6 alturas; siempre completa entre 5 y 7 alturas.
+Las ubicaciones pueden llegar en una sola columna o divididas en varios segmentos. StockFlow IA conserva el código original completo. Si el archivo no contiene un maestro de huecos, muestra únicamente las ubicaciones confirmadas y pausa las propuestas que necesitarían inventar un destino. Para generar todos los huecos vacíos, el archivo debe aportar pasillo, módulo y altura o incluir filas explícitas para esas ubicaciones.
 
 ## Motor de decisión
 
@@ -85,6 +88,7 @@ Las recomendaciones son deterministas y explicables. La aplicación no presenta 
 - Next.js/Vinext sobre Vite.
 - Motor analítico puro en `lib/inventory.ts`.
 - Motor de ubicaciones y movimientos en `lib/warehouse.ts`.
+- Detector y traductor de formatos empresariales en `lib/universal-import.ts`.
 - Procesamiento local de Excel y CSV en el navegador.
 - Sin base de datos, cuentas ni datos personales.
 - Despliegue como aplicación web.
@@ -106,7 +110,7 @@ npm run test:logic
 npm run build
 ```
 
-Las 12 pruebas automatizadas verifican el análisis ABC, el simulador, los conteos, la importación Excel real, la generación de huecos vacíos, la zona APQ, la fusión exacta y la reposición a suelo.
+Las 18 pruebas automatizadas verifican el análisis ABC, el simulador, los conteos, Excel, la detección y corrección de hoja/encabezados, ubicaciones compuestas, importación mínima y parcial segura, huecos vacíos, APQ, fusión exacta y reposición a suelo.
 
 ## Privacidad
 

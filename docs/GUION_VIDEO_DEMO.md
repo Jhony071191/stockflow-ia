@@ -12,16 +12,18 @@ Mostrar brevemente un Excel ficticio.
 
 Mostrar el dashboard inicial.
 
-## 0:40–1:15 — Importación Excel
+## 0:40–1:25 — Traductor universal de Excel
 
 1. Pulsar **Analizar inventario**.
-2. Mostrar la plantilla Excel con pasillo, módulo, altura, lote, fechas, APQ y picking.
-3. Subir el Excel de demostración.
-4. Señalar el mensaje de importación correcta.
+2. Mostrar un Excel ficticio cuyo título esté antes de los encabezados y cuya ubicación esté dividida en varias columnas.
+3. Subir el archivo y señalar la hoja y fila de encabezados detectadas.
+4. Mostrar la correspondencia automática de “Item”, “Quantity”, lote, vencimiento, zona y ubicación compuesta.
+5. Explicar que la correspondencia puede corregirse y se recuerda para ese formato.
+6. Confirmar la traducción.
 
-Frase clave: “El archivo se valida y procesa localmente; genera las ubicaciones ocupadas y también todos los huecos vacíos.”
+Frase clave: “StockFlow traduce el formato de cada empresa. Solo exige SKU y cantidad, y nunca convierte un dato ausente en un cero inventado.”
 
-## 1:15–1:40 — Dashboard
+## 1:25–1:50 — Dashboard
 
 Explicar brevemente:
 
@@ -31,19 +33,21 @@ Explicar brevemente:
 - Cobertura media.
 - Acciones y clasificación ABC ordenadas por impacto.
 
-## 1:40–3:10 — Mapa completo del almacén
+Si el archivo de demostración omite costes o demanda, señalar los indicadores “Pendiente” y explicar que los cálculos dependientes quedan pausados.
+
+## 1:50–3:15 — Mapa del almacén
 
 1. Abrir **Mapa de almacén**.
 2. Señalar ubicaciones totales, ocupadas, vacías, APQ y picking próximo.
-3. Recorrer los pasillos y mostrar las alturas de arriba hacia abajo.
+3. Mostrar la tabla de ubicaciones originales y cómo conserva exactamente el código del WMS.
 4. Filtrar por familia, ocupación y APQ.
 5. Buscar un SKU o lote.
 6. Abrir una ubicación ocupada y mostrar cantidad, lote, fabricación, vencimiento y picking pendiente.
-7. Abrir una ubicación vacía y explicar que puede usarse como destino compatible.
+7. Cambiar a la plantilla completa o explicar que, cuando existe un maestro de huecos, también se muestran las ubicaciones vacías.
 
-Frase clave: “La altura uno es suelo o picking; las alturas superiores son reserva. APQ permanece segregado y nunca se propone como destino para mercancía general.”
+Frase clave: “Si el Excel solo confirma ubicaciones ocupadas, StockFlow no inventa huecos. Con el maestro completo, la altura uno es suelo y las superiores son reserva; APQ permanece segregado.”
 
-## 3:10–4:00 — Plan de movimientos explicable
+## 3:15–4:00 — Plan de movimientos explicable
 
 1. Mostrar una acción **Subir a altura**.
 2. Explicar que queda un mes de demanda en suelo después del picking pendiente.
@@ -72,7 +76,7 @@ Mostrar brevemente:
 
 - Historial de prompts.
 - Evolución visual.
-- Doce pruebas automatizadas.
+- Dieciocho pruebas automatizadas.
 - Aplicación desplegada.
 
 ## 4:53–5:00 — Cierre

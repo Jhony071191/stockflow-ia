@@ -10,12 +10,20 @@ export type RawInventoryItem = {
   salesM2: number;
   salesM3: number;
   expiryDate?: string;
+  dataQuality?: {
+    productAvailable?: boolean;
+    familyAvailable?: boolean;
+    unitCostAvailable?: boolean;
+    demandAvailable?: boolean;
+  };
 };
 
 export type StockStatus = "critical" | "attention" | "stable";
 export type AbcClass = "A" | "B" | "C";
 
 export type AnalyzedInventoryItem = RawInventoryItem & {
+  demandAvailable: boolean;
+  unitCostAvailable: boolean;
   averageMonthlyDemand: number;
   demandVariability: number;
   consumptionValue: number;
@@ -94,6 +102,8 @@ const daysUntil = (date?: string): number | null => {
 
 export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysis {
   const baseItems = rawItems.map((item) => {
+    const demandAvailable = item.dataQuality?.demandAvailable !== false;
+    const unitCostAvailable = item.dataQuality?.unitCostAvailable !== false;
     const sales = [item.salesM1, item.salesM2, item.salesM3];
     const averageMonthlyDemand = Math.max(0, average(sales));
     const variability = averageMonthlyDemand > 0
@@ -102,9 +112,11 @@ export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysi
 
     return {
       ...item,
+      demandAvailable,
+      unitCostAvailable,
       averageMonthlyDemand,
       demandVariability: variability,
-      consumptionValue: averageMonthlyDemand * item.unitCost,
+      consumptionValue: demandAvailable && unitCostAvailable ? averageMonthlyDemand * item.unitCost : 0,
     };
   });
 
@@ -129,9 +141,9 @@ export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysi
     const suggestedOrder = Math.ceil(Math.max(0, averageDailyDemand * targetDays + item.safetyStock - item.currentStock));
     const expiryDays = daysUntil(item.expiryDate);
     const isExpiringSoon = expiryDays !== null && expiryDays <= 30;
-    const isNoRotation = item.averageMonthlyDemand === 0 && item.currentStock > 0;
-    const isStockoutRisk = item.currentStock <= reorderPoint || coverageDays < item.leadTimeDays + 7;
-    const isOverstock = coverageDays > 90 || isNoRotation;
+    const isNoRotation = item.demandAvailable && item.averageMonthlyDemand === 0 && item.currentStock > 0;
+    const isStockoutRisk = item.demandAvailable && (item.currentStock <= reorderPoint || coverageDays < item.leadTimeDays + 7);
+    const isOverstock = item.demandAvailable && (coverageDays > 90 || isNoRotation);
 
     let status: StockStatus = "stable";
     let situation = "Stock equilibrado";
@@ -141,6 +153,10 @@ export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysi
       status = "critical";
       situation = expiryDays !== null && expiryDays < 0 ? "Producto caducado" : "Caducidad próxima";
       recommendation = "Priorizar salida y revisar lote";
+    } else if (!item.demandAvailable) {
+      status = "attention";
+      situation = "Demanda no disponible";
+      recommendation = "Añadir ventas, consumo o pedidos para calcular cobertura y sobrestock";
     } else if (isNoRotation) {
       status = "attention";
       situation = "Sin rotación";
@@ -160,7 +176,7 @@ export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysi
     }
 
     const statusLabel = status === "critical" ? "Crítico" : status === "attention" ? "Atención" : "Estable";
-    const coveragePenalty = coverageDays < 30 ? 30 - coverageDays : coverageDays > 90 ? Math.min(30, (coverageDays - 90) / 3) : 0;
+    const coveragePenalty = !item.demandAvailable ? 0 : coverageDays < 30 ? 30 - coverageDays : coverageDays > 90 ? Math.min(30, (coverageDays - 90) / 3) : 0;
     const classBoost = abcBySku.get(item.sku) === "A" ? 12 : abcBySku.get(item.sku) === "B" ? 6 : 0;
     const priorityScore = Math.round((status === "critical" ? 70 : status === "attention" ? 35 : 5) + coveragePenalty + classBoost);
 
@@ -367,14 +383,14 @@ export function exportAnalysisCsv(items: AnalyzedInventoryItem[]) {
     item.category,
     item.abcClass,
     item.currentStock,
-    item.averageMonthlyDemand.toFixed(2),
-    item.coverageDays >= 999 ? "Sin consumo" : item.coverageDays.toFixed(1),
-    item.reorderPoint,
-    item.suggestedOrder,
+    item.demandAvailable ? item.averageMonthlyDemand.toFixed(2) : "No disponible",
+    item.demandAvailable ? (item.coverageDays >= 999 ? "Sin consumo" : item.coverageDays.toFixed(1)) : "No disponible",
+    item.demandAvailable ? item.reorderPoint : "No disponible",
+    item.demandAvailable ? item.suggestedOrder : "No disponible",
     item.statusLabel,
     item.situation,
     item.recommendation,
-    item.stockValue.toFixed(2),
+    item.unitCostAvailable ? item.stockValue.toFixed(2) : "No disponible",
   ]);
   return [headers, ...rows].map((row) => row.map(quoteCsv).join(";")).join("\n");
 }

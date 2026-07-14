@@ -144,7 +144,21 @@
 
 > Amplía StockFlow IA con un mapa completo del almacén. Importa Excel o CSV con una fila por ubicación, genera huecos vacíos y ocupados, admite entre 5 y 7 alturas, agrupa por familias y segrega APQ. Muestra pasillo, módulo, altura, cantidad, SKU, lote, fabricación, vencimiento y picking pendiente. Para sobrestock, conserva en suelo un mes de demanda después de los pedidos pendientes y sube el excedente. Solo permite fusionar si coinciden SKU, lote, fabricación y vencimiento; en caso contrario, asigna un hueco vacío compatible. Cuando falte stock en suelo, propone reposición desde altura con origen y destino exactos. Añade exportación, plantilla Excel, filtros, detalle, pruebas y documentación.
 
-**Resultado:** nuevo módulo “Mapa de almacén”, importador Excel real, generación completa de ubicaciones, zona APQ, plan de movimientos explicable, fusión exacta, sugerencias de hueco, reposición a suelo y cinco pruebas logísticas adicionales. La validación completa alcanzó 12 pruebas lógicas, lint y compilación satisfactoria.
+**Resultado:** primera versión del mapa logístico con reglas APQ, trazabilidad, fusión y reposición; validación 12/12. La revisión WMS posterior descubrió que no debían inventarse huecos; se corrigió en el Prompt 16.
+
+## Prompt 16 — Traductor universal de formatos empresariales
+
+**Autor:** participante
+**Fecha:** 14/07/2026
+**Prompt literal:**
+
+> Quiero que la aplicacion tome cualquier excel y lo traduzca al lenguaje de la misma para que de esa forma lea y se adapte a cualquier empresa
+
+**Instrucción consolidada dada a Codex:**
+
+> Sustituye la importación rígida por un traductor universal asistido. Debe examinar todas las hojas, localizar encabezados aunque no estén en la primera fila, reconocer alias empresariales en varios idiomas, inferir columnas mediante sus valores, reconstruir ubicaciones divididas en varios segmentos y permitir corregir el mapeo antes de importar. Solo SKU y cantidad serán obligatorios. Recuerda el perfil del formato localmente y nunca inventes producto, familia, coste, demanda, APQ, pedidos ni huecos vacíos. Cuando falten demanda o un maestro completo de ubicaciones, conserva el stock físico pero pausa los cálculos y destinos que no puedan justificarse. Añade pruebas con formatos desplazados, múltiples hojas, un fichero mínimo y un maestro completo.
+
+**Resultado:** asistente “Traductor universal de inventarios”, detección y corrección de hoja/fila de encabezados, mapeo editable, perfiles locales, ubicación compuesta, modo seguro de datos parciales y seis pruebas adicionales. La validación alcanzó 18 pruebas lógicas, lint y compilación satisfactoria.
 
 ## Evidencias que deben incorporarse al Google Doc
 
