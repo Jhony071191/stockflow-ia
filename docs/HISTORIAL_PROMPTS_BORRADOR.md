@@ -11,7 +11,7 @@
 
 ## Prompt 01 — Inicio oficial
 
-**Autor:** participante  
+**Autor:** participante
 **Fecha:** 14/07/2026  
 **Prompt literal:**
 
@@ -37,7 +37,7 @@
 
 ## Prompt 04 — Selección visual
 
-**Autor:** participante  
+**Autor:** participante
 **Prompt literal:**
 
 > La opción 1
@@ -94,7 +94,7 @@
 
 ## Prompt 11 — Conteos cíclicos
 
-**Autor:** participante  
+**Autor:** participante
 **Prompt literal:**
 
 > Tienes mi autorización, es posible también insertar un apartado para que realice conteos cíclicos dado que los clientes pueden pedir realizar dos conteos en el año o aun solo conteo. Luego que me respondas si es posible y de ser positivo intégralo y continúa con la autorización por mi parte.
@@ -104,6 +104,47 @@
 > Integra un módulo de conteos cíclicos orientado a clientes. Debe permitir contratar y programar uno o dos conteos por año, configurar fechas y tolerancia, ordenar referencias por ABC, registrar cantidades físicas, calcular diferencias absolutas y porcentuales, medir exactitud, cerrar campañas completas y exportar un acta. Mantén el diseño premium, el procesamiento local y añade pruebas automatizadas.
 
 **Resultado:** módulo de campañas anuales, captura física, conciliación, métricas, exportación y tres pruebas adicionales.
+
+## Prompt 12 — Creación del repositorio público
+
+**Autor:** participante
+**Prompt literal:**
+
+> https://github.com/Jhony071191/stockflow-ia
+
+**Resultado:** identificación del repositorio público y preparación de la publicación del código generado.
+
+## Prompt 13 — Validación y reparación de GitHub
+
+**Autor:** participante
+**Prompt literal:**
+
+> listo
+
+**Resultado:** revisión del repositorio, restauración de archivos raíz desde la fuente desplegada, corrección de permisos de scripts y comparación exacta del árbol Git. Resultado: instalación limpia, pruebas, lint, compilación y renderizado superados.
+
+## Prompt 14 — Organización de los entregables
+
+**Autor:** participante
+**Prompt literal:**
+
+> tienes mi autorizacion total para crear y organizar los elementos
+
+**Resultado:** creación y organización de la carpeta oficial de Google Drive, documentación técnica, historial independiente, control visual mediante PDF y verificación de permisos públicos de lectura.
+
+## Prompt 15 — Mapa integral de ubicaciones y slotting
+
+**Autor:** participante
+**Fecha:** 14/07/2026
+**Prompt literal:**
+
+> revisando la aplicacion me di cuenta que no dice las ubicaciones normalmente son por pasillos y por altural en los almacenes logisticos cuenta con un maximo de 6 a 7 alturas y como minimo 5 alturas tambien estan divididos por grupos familiares y tienen unas ubicaciones que con para APQ que seria articulos peligrosos Hazardous quiero que tambien lo contemple que si inserto un excel me genere las ubicaciones de todo el almacen sean vacias o ocupadas quiero que me diga que cantidad tienen en cada una de ellas y como requisito es si tengo sobre stock quiero que me diga que se debe de subir la mercancia sobrante a altura dejar lo necesario para el mes, de ser necesario fusionarlo siempre y cuando cumpla con este requisito primordial el lote debe de ser el mismo al igual que las fechas de fabricacion y vencimiento del mismo, tambien quiero que me diga en que ubicacion podria yo colocar la mercancia sobrante en caso de no poder fusionarlo y si debo de realizar un aprovicionamiento donde deberia ir en el suelo. tambien quiero que en la pantalla se muestre todos los pasillos con sus ubicaciones lotes, sku, y si tengo picking pendiente en el sistema que me diga cuantos van a salir en los pedidos proximos
+
+**Instrucción consolidada dada a Codex:**
+
+> Amplía StockFlow IA con un mapa completo del almacén. Importa Excel o CSV con una fila por ubicación, genera huecos vacíos y ocupados, admite entre 5 y 7 alturas, agrupa por familias y segrega APQ. Muestra pasillo, módulo, altura, cantidad, SKU, lote, fabricación, vencimiento y picking pendiente. Para sobrestock, conserva en suelo un mes de demanda después de los pedidos pendientes y sube el excedente. Solo permite fusionar si coinciden SKU, lote, fabricación y vencimiento; en caso contrario, asigna un hueco vacío compatible. Cuando falte stock en suelo, propone reposición desde altura con origen y destino exactos. Añade exportación, plantilla Excel, filtros, detalle, pruebas y documentación.
+
+**Resultado:** nuevo módulo “Mapa de almacén”, importador Excel real, generación completa de ubicaciones, zona APQ, plan de movimientos explicable, fusión exacta, sugerencias de hueco, reposición a suelo y cinco pruebas logísticas adicionales. La validación completa alcanzó 12 pruebas lógicas, lint y compilación satisfactoria.
 
 ## Evidencias que deben incorporarse al Google Doc
 

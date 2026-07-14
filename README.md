@@ -1,6 +1,6 @@
 # StockFlow IA
 
-StockFlow IA convierte una hoja de inventario en un plan de acción comprensible: qué reponer, qué tiene exceso, qué apenas rota y qué referencias requieren atención inmediata.
+StockFlow IA convierte una hoja de inventario en un plan de acción comprensible: qué reponer, qué tiene exceso, dónde ubicar cada lote y qué referencias requieren atención inmediata.
 
 **Aplicación:** https://stockflow-ia.jamz071191.chatgpt.site
 
@@ -10,7 +10,14 @@ Pequeños comercios, almacenes y organizaciones suelen disponer de datos de stoc
 
 ## Funcionalidades
 
-- Importación y validación de inventarios CSV.
+- Importación y validación de inventarios Excel (`.xlsx`) y CSV.
+- Generación del mapa completo del almacén, incluidas ubicaciones vacías y ocupadas.
+- Estructura configurable por pasillos, módulos y entre 5 y 7 alturas.
+- Agrupación por familias y segregación visual de ubicaciones APQ.
+- Trazabilidad por ubicación, SKU, lote, fabricación, vencimiento y cantidad.
+- Picking pendiente por ubicación y unidades comprometidas en pedidos próximos.
+- Recomendaciones de subida a altura, fusión segura y reposición a suelo.
+- Fusión permitida únicamente cuando coinciden SKU, lote, fabricación y vencimiento.
 - Clasificación ABC por valor de consumo acumulado.
 - Cálculo de demanda media, variabilidad, rotación, cobertura y punto de pedido.
 - Detección de roturas, sobrestock, falta de rotación y caducidad próxima.
@@ -23,20 +30,21 @@ Pequeños comercios, almacenes y organizaciones suelen disponer de datos de stoc
 
 ## Flujo principal
 
-1. Descargar la plantilla o preparar un CSV compatible.
-2. Pulsar **Analizar inventario** y seleccionar el archivo.
-3. Revisar indicadores, clasificación ABC y acciones recomendadas.
-4. Probar escenarios en el simulador.
-5. Programar y ejecutar los conteos cíclicos contratados.
-6. Exportar el informe o acta para compartir y ejecutar el plan.
+1. Descargar la plantilla Excel y registrar una fila por ubicación ocupada.
+2. Indicar pasillo, módulo, altura, lote, fechas, APQ y picking pendiente.
+3. Pulsar **Analizar inventario** y seleccionar el archivo.
+4. Revisar el mapa completo de ubicaciones y el plan de movimientos.
+5. Consultar indicadores, clasificación ABC y acciones recomendadas.
+6. Probar escenarios o ejecutar conteos cíclicos.
+7. Exportar el análisis, el mapa o el acta.
 
-## Columnas CSV
+## Columnas Excel o CSV
 
 Obligatorias:
 
 - `sku`
 - `producto`
-- `stock_actual`
+- `cantidad_ubicacion` o `stock_actual`
 - `coste_unitario`
 - `demanda_mensual`, o al menos una de `ventas_mes_1`, `ventas_mes_2`, `ventas_mes_3`
 
@@ -46,8 +54,16 @@ Opcionales:
 - `lead_time_dias`
 - `stock_seguridad`
 - `fecha_caducidad`
+- `pasillo`, `modulo`, `altura` o `ubicacion`
+- `lote`, `fecha_fabricacion`, `fecha_vencimiento`
+- `apq`
+- `picking_pendiente`
+- `capacidad_ubicacion`
+- `total_pasillos`, `modulos_por_pasillo`, `alturas_almacen`
 
 Se aceptan separadores por punto y coma o coma y distintos alias habituales en español.
+
+La plantilla utiliza una fila por ubicación ocupada. Si faltan coordenadas, StockFlow IA asigna huecos automáticamente. Si no se indican las dimensiones, utiliza una demostración de 6 pasillos × 8 módulos × 6 alturas; siempre completa entre 5 y 7 alturas.
 
 ## Motor de decisión
 
@@ -56,6 +72,10 @@ Se aceptan separadores por punto y coma o coma y distintos alias habituales en e
 - **Punto de pedido:** demanda durante el plazo de entrega + stock de seguridad.
 - **Pedido sugerido:** cantidad necesaria para alcanzar una cobertura objetivo adaptada al plazo.
 - **Prioridad:** combina estado, cobertura e importancia ABC.
+- **Objetivo de picking:** disponibilidad en suelo después de pedidos pendientes = un mes de demanda media.
+- **Excedente:** unidades de suelo por encima del objetivo; se proponen para reserva en altura.
+- **Fusión segura:** solo con coincidencia exacta de SKU, lote, fabricación y vencimiento.
+- **Reposición:** traslada desde reserva a una ubicación de suelo compatible, priorizando el vencimiento más próximo.
 
 Las recomendaciones son deterministas y explicables. La aplicación no presenta predicciones opacas como certezas.
 
@@ -64,7 +84,8 @@ Las recomendaciones son deterministas y explicables. La aplicación no presenta 
 - React 19 + TypeScript.
 - Next.js/Vinext sobre Vite.
 - Motor analítico puro en `lib/inventory.ts`.
-- Procesamiento local del CSV en el navegador.
+- Motor de ubicaciones y movimientos en `lib/warehouse.ts`.
+- Procesamiento local de Excel y CSV en el navegador.
 - Sin base de datos, cuentas ni datos personales.
 - Despliegue como aplicación web.
 
@@ -85,7 +106,7 @@ npm run test:logic
 npm run build
 ```
 
-Las pruebas automatizadas verifican el análisis ABC, el efecto del simulador, la importación de la plantilla y los errores de columnas obligatorias.
+Las 12 pruebas automatizadas verifican el análisis ABC, el simulador, los conteos, la importación Excel real, la generación de huecos vacíos, la zona APQ, la fusión exacta y la reposición a suelo.
 
 ## Privacidad
 

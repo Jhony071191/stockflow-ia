@@ -1,74 +1,70 @@
 # Guion del video de demostración — máximo 5 minutos
 
-## 0:00–0:25 — Problema
+## 0:00–0:20 — Problema
 
-“Muchas pequeñas empresas gestionan su inventario con hojas de cálculo. Saben cuánto stock tienen, pero no siempre qué deben hacer primero. Esto provoca roturas, exceso de mercancía y capital inmovilizado.”
+“Muchas empresas gestionan el inventario con hojas de cálculo. Conocen el stock total, pero no siempre dónde está cada lote, qué huecos quedan libres o qué movimiento deben realizar primero.”
 
-Mostrar brevemente una hoja CSV ficticia.
+Mostrar brevemente un Excel ficticio.
 
-## 0:25–0:45 — Solución
+## 0:20–0:40 — Solución
 
-“StockFlow IA convierte esa hoja en un plan de acción comprensible en menos de un minuto. Fue creada mediante Vibe Coding con Codex durante la ventana oficial del hackathon.”
+“StockFlow IA convierte esa hoja en un mapa completo del almacén y en un plan de acción comprensible. Fue creada mediante Vibe Coding con Codex durante la ventana oficial del hackathon.”
 
 Mostrar el dashboard inicial.
 
-## 0:45–1:25 — Importación
+## 0:40–1:15 — Importación Excel
 
 1. Pulsar **Analizar inventario**.
-2. Mostrar la plantilla descargable.
-3. Subir el CSV de demostración.
+2. Mostrar la plantilla Excel con pasillo, módulo, altura, lote, fechas, APQ y picking.
+3. Subir el Excel de demostración.
 4. Señalar el mensaje de importación correcta.
 
-Frase clave: “El archivo se valida y procesa localmente; no se almacena ni transmite.”
+Frase clave: “El archivo se valida y procesa localmente; genera las ubicaciones ocupadas y también todos los huecos vacíos.”
 
-## 1:25–2:05 — Dashboard
+## 1:15–1:40 — Dashboard
 
-Explicar:
+Explicar brevemente:
 
 - Valor total del inventario.
 - SKU en riesgo de rotura.
 - Sobrestock y capital inmovilizado.
 - Cobertura media.
-- Centro de acciones ordenado por impacto.
+- Acciones y clasificación ABC ordenadas por impacto.
 
-## 2:05–2:45 — ABC e inventario
+## 1:40–3:10 — Mapa completo del almacén
 
-1. Abrir **Inventario**.
-2. Mostrar clases A, B y C.
-3. Usar buscador y filtro.
-4. Explicar cobertura y rotación.
+1. Abrir **Mapa de almacén**.
+2. Señalar ubicaciones totales, ocupadas, vacías, APQ y picking próximo.
+3. Recorrer los pasillos y mostrar las alturas de arriba hacia abajo.
+4. Filtrar por familia, ocupación y APQ.
+5. Buscar un SKU o lote.
+6. Abrir una ubicación ocupada y mostrar cantidad, lote, fabricación, vencimiento y picking pendiente.
+7. Abrir una ubicación vacía y explicar que puede usarse como destino compatible.
 
-Frase clave: “La clase A concentra las referencias con mayor valor de consumo y recibe más peso en la prioridad.”
+Frase clave: “La altura uno es suelo o picking; las alturas superiores son reserva. APQ permanece segregado y nunca se propone como destino para mercancía general.”
 
-## 2:45–3:25 — Acciones explicables
+## 3:10–4:00 — Plan de movimientos explicable
 
-1. Abrir **Acciones**.
-2. Seleccionar una referencia crítica.
-3. Mostrar stock, demanda, cobertura, punto de pedido y acción sugerida.
+1. Mostrar una acción **Subir a altura**.
+2. Explicar que queda un mes de demanda en suelo después del picking pendiente.
+3. Mostrar una **Fusión exacta** y leer la regla de lote y fechas.
+4. Mostrar un destino vacío cuando la fusión no es posible.
+5. Mostrar una **Reposición al suelo** con origen y destino concretos.
 
-Frase clave: “StockFlow IA no entrega una recomendación opaca; muestra exactamente cómo se ha calculado.”
+Frase clave: “Solo fusionamos si coinciden SKU, lote, fabricación y vencimiento; si no, buscamos un hueco vacío compatible.”
 
-## 3:25–4:05 — Conteos cíclicos
+## 4:00–4:25 — Conteos cíclicos
 
 1. Abrir **Conteos cíclicos**.
-2. Mostrar que el cliente puede contratar uno o dos conteos anuales.
-3. Seleccionar una campaña y pulsar **Cargar ejemplo**.
-4. Enseñar avance, diferencias, tolerancia, exactitud y exportación del acta.
+2. Mostrar uno o dos conteos anuales.
+3. Pulsar **Cargar ejemplo**.
+4. Enseñar brevemente avance, diferencias, tolerancia y exactitud.
 
-Frase clave: “El módulo convierte el servicio contratado en una campaña trazable y explica cada diferencia frente al sistema.”
+## 4:25–4:40 — Simulador y exportación
 
-## 4:05–4:30 — Simulador
-
-1. Abrir **Simulador**.
-2. Aumentar la demanda.
-3. Añadir retraso del proveedor.
-4. Mostrar el cambio en riesgo, unidades e inversión.
-
-Frase clave: “Así podemos anticiparnos antes de que el escenario ocurra.”
-
-## 4:30–4:40 — Exportación
-
-Mostrar la descarga del análisis CSV y las columnas generadas.
+1. Abrir **Simulador** y aumentar la demanda.
+2. Mostrar el cambio en riesgo.
+3. Volver al mapa y señalar que puede exportarse completo, incluidas las ubicaciones vacías.
 
 ## 4:40–4:53 — Vibe Coding
 
@@ -76,11 +72,11 @@ Mostrar brevemente:
 
 - Historial de prompts.
 - Evolución visual.
-- Pruebas automatizadas.
+- Doce pruebas automatizadas.
 - Aplicación desplegada.
 
 ## 4:53–5:00 — Cierre
 
-“StockFlow IA hace accesible el análisis de inventario para que pequeños negocios y organizaciones puedan reducir pérdidas, trabajar con menos incertidumbre y tomar mejores decisiones.”
+“StockFlow IA convierte los datos de inventario en decisiones físicas claras para reducir pérdidas, aprovechar el espacio y trabajar con menos incertidumbre.”
 
 Pantalla final: nombre del proyecto y URL funcional.

@@ -152,7 +152,7 @@ export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysi
     } else if (isOverstock) {
       status = "attention";
       situation = "Sobrestock";
-      recommendation = "Pausar o reducir próximo pedido";
+      recommendation = "Mantener 1 mes en suelo y subir el excedente a altura";
     } else if (coverageDays < 30) {
       status = "attention";
       situation = "Cobertura ajustada";

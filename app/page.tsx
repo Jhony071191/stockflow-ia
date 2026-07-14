@@ -2,6 +2,9 @@
 
 import {
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
+  Ban,
   Bell,
   Boxes,
   Building2,
@@ -10,6 +13,7 @@ import {
   ChevronRight,
   CircleAlert,
   ClipboardCheck,
+  Combine,
   Database,
   Download,
   Euro,
@@ -18,17 +22,22 @@ import {
   LayoutDashboard,
   ListChecks,
   LineChart,
+  Layers3,
+  MapPin,
   Menu,
   Package,
+  PackageOpen,
   RefreshCw,
   RotateCcw,
   Search,
   ShieldCheck,
+  ShieldAlert,
   SlidersHorizontal,
   Sparkles,
   Target,
   TrendingUp,
   Upload,
+  Warehouse as WarehouseIcon,
   X,
   Zap,
   type LucideIcon,
@@ -43,15 +52,26 @@ import {
 import {
   SAMPLE_INVENTORY,
   analyzeInventory,
-  createTemplateCsv,
   exportAnalysisCsv,
-  parseInventoryCsv,
   simulateInventory,
   type AnalyzedInventoryItem,
   type InventoryAnalysis,
   type RawInventoryItem,
   type StockStatus,
 } from "../lib/inventory";
+import {
+  buildWarehouseLocations,
+  calculateWarehouseMoves,
+  createDemoWarehouseDataset,
+  createWarehouseTemplateRows,
+  exportWarehouseCsv,
+  parseWarehouseCsv,
+  parseWarehouseRows,
+  warehouseSummary,
+  type WarehouseDataset,
+  type WarehouseLocation,
+  type WarehouseMove,
+} from "../lib/warehouse";
 import {
   addSixMonths,
   calculateCountMetrics,
@@ -60,11 +80,12 @@ import {
   type CycleCountPlan,
 } from "../lib/cycle-counts";
 
-type View = "resumen" | "inventario" | "acciones" | "simulador" | "conteos";
+type View = "resumen" | "inventario" | "almacen" | "acciones" | "simulador" | "conteos";
 
 const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "resumen", label: "Resumen", icon: LayoutDashboard },
   { id: "inventario", label: "Inventario", icon: Package },
+  { id: "almacen", label: "Mapa de almacén", icon: WarehouseIcon },
   { id: "acciones", label: "Acciones", icon: Zap },
   { id: "simulador", label: "Simulador", icon: LineChart },
   { id: "conteos", label: "Conteos cíclicos", icon: ClipboardCheck },
@@ -77,6 +98,7 @@ const currency = new Intl.NumberFormat("es-ES", {
 });
 
 const decimal = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 });
+const SAMPLE_WAREHOUSE = createDemoWarehouseDataset(SAMPLE_INVENTORY);
 
 const downloadTextFile = (filename: string, contents: string) => {
   const blob = new Blob([`\uFEFF${contents}`], { type: "text/csv;charset=utf-8" });
@@ -302,6 +324,190 @@ function InventoryView({
         </div>
         <div className="table-footer">Mostrando {filteredRows.length} de {items.length} referencias</div>
       </section>
+    </div>
+  );
+}
+
+function WarehouseLocationDrawer({ location, onClose }: { location: WarehouseLocation | null; onClose: () => void }) {
+  if (!location) return null;
+  return (
+    <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <aside aria-labelledby="location-detail-title" aria-modal="true" className="detail-drawer location-drawer" role="dialog">
+        <button className="modal-close" aria-label="Cerrar detalle de ubicación" onClick={onClose} type="button"><X size={20} /></button>
+        <p className="eyebrow">Ubicación logística</p>
+        <h2 id="location-detail-title">{location.code}</h2>
+        <div className="drawer-meta">
+          <span>Pasillo {location.aisle}</span>
+          <span>Altura {location.level}</span>
+          <span className={location.zone === "APQ" ? "zone-chip apq" : "zone-chip"}>{location.zone}</span>
+        </div>
+        <section className="location-capacity-card">
+          <div><span>Familia asignada</span><strong>{location.family}</strong></div>
+          <div><span>Ocupación</span><strong>{decimal.format(location.quantity)} / {decimal.format(location.capacity)} ud.</strong></div>
+          <div className="capacity-track"><span style={{ width: `${Math.min(100, (location.quantity / Math.max(1, location.capacity)) * 100)}%` }} /></div>
+        </section>
+        {!location.contents.length ? (
+          <div className="location-empty-detail"><PackageOpen size={30} /><strong>Ubicación vacía</strong><p>Disponible para mercancía compatible con la familia y la zona.</p></div>
+        ) : (
+          <div className="location-content-list">
+            {location.contents.map((stock) => (
+              <article key={stock.id}>
+                <div className="location-content-heading"><div><span>{stock.sku}</span><strong>{stock.product}</strong></div><b>{decimal.format(stock.quantity)} ud.</b></div>
+                <dl>
+                  <div><dt>Lote</dt><dd>{stock.batch || "No informado"}</dd></div>
+                  <div><dt>Fabricación</dt><dd>{stock.manufacturingDate || "No informada"}</dd></div>
+                  <div><dt>Vencimiento</dt><dd>{stock.expiryDate || "No informado"}</dd></div>
+                  <div><dt>Picking próximo</dt><dd>{decimal.format(stock.pendingPicking)} ud.</dd></div>
+                </dl>
+                {stock.hazardous && <p className="apq-notice"><ShieldAlert size={16} /> Mercancía APQ: mantener segregación y validar compatibilidad.</p>}
+              </article>
+            ))}
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+const movementMeta = (move: WarehouseMove) => {
+  if (move.type === "replenish") return { label: "Reposición al suelo", icon: ArrowDown, tone: "teal" };
+  if (move.type === "consolidate") return { label: "Fusión exacta", icon: Combine, tone: "blue" };
+  if (move.type === "elevate") return { label: "Subir a altura", icon: ArrowUp, tone: "amber" };
+  return { label: "Bloqueado", icon: Ban, tone: "red" };
+};
+
+function WarehouseView({
+  dataset,
+  analysis,
+  onUpload,
+  onExport,
+}: {
+  dataset: WarehouseDataset;
+  analysis: InventoryAnalysis;
+  onUpload: () => void;
+  onExport: () => void;
+}) {
+  const locations = useMemo(() => buildWarehouseLocations(dataset), [dataset]);
+  const moves = useMemo(() => calculateWarehouseMoves(dataset, analysis.items), [dataset, analysis.items]);
+  const summary = useMemo(() => warehouseSummary(locations), [locations]);
+  const [query, setQuery] = useState("");
+  const [aisleFilter, setAisleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [familyFilter, setFamilyFilter] = useState("all");
+  const [selectedLocation, setSelectedLocation] = useState<WarehouseLocation | null>(null);
+  const families = [...new Set(locations.map((location) => location.family))].sort();
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchesLocation = (location: WarehouseLocation) => {
+    const searchable = `${location.code} ${location.family} ${location.zone} ${location.contents.map((stock) => `${stock.sku} ${stock.product} ${stock.batch}`).join(" ")}`.toLowerCase();
+    const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
+    const matchesFamily = familyFilter === "all" || location.family === familyFilter || location.contents.some((stock) => stock.family === familyFilter);
+    const matchesStatus = statusFilter === "all"
+      || (statusFilter === "empty" && !location.contents.length)
+      || (statusFilter === "occupied" && location.contents.length > 0)
+      || (statusFilter === "apq" && location.zone === "APQ")
+      || (statusFilter === "picking" && location.pendingPicking > 0);
+    return matchesQuery && matchesFamily && matchesStatus;
+  };
+  const visibleAisles = Array.from({ length: dataset.config.aisleCount }, (_, index) => index + 1).filter((aisle) => {
+    if (aisleFilter !== "all" && Number(aisleFilter) !== aisle) return false;
+    return locations.filter((location) => location.aisle === aisle).some(matchesLocation);
+  });
+
+  return (
+    <div className="view-enter section-view warehouse-view">
+      <div className="section-heading warehouse-heading">
+        <div>
+          <p className="eyebrow">Gemelo operativo del almacén</p>
+          <h1>Mapa de ubicaciones</h1>
+          <p>Visualiza pasillos, alturas, familias, lotes, zona APQ y salidas de picking.</p>
+        </div>
+        <div className="warehouse-heading-actions">
+          <button className="secondary-button" onClick={onExport} type="button"><Download size={17} /> Exportar mapa</button>
+          <button className="primary-button compact" onClick={onUpload} type="button"><Upload size={18} /> Importar Excel</button>
+        </div>
+      </div>
+
+      <section className="warehouse-stats" aria-label="Resumen de ubicaciones">
+        <article><span className="warehouse-stat-icon blue"><MapPin size={20} /></span><div><small>Ubicaciones</small><strong>{summary.total}</strong><p>{dataset.config.aisleCount} pasillos · {dataset.config.levelCount} alturas</p></div></article>
+        <article><span className="warehouse-stat-icon teal"><Boxes size={20} /></span><div><small>Ocupadas</small><strong>{summary.occupied}</strong><p>{decimal.format((summary.occupied / Math.max(1, summary.total)) * 100)} % de ocupación</p></div></article>
+        <article><span className="warehouse-stat-icon green"><PackageOpen size={20} /></span><div><small>Vacías</small><strong>{summary.empty}</strong><p>huecos disponibles</p></div></article>
+        <article><span className="warehouse-stat-icon amber"><ListChecks size={20} /></span><div><small>Picking próximo</small><strong>{decimal.format(summary.pendingPicking)} ud.</strong><p>reservadas para pedidos</p></div></article>
+        <article><span className="warehouse-stat-icon red"><ShieldAlert size={20} /></span><div><small>Zona APQ</small><strong>{summary.apq}</strong><p>ubicaciones segregadas</p></div></article>
+      </section>
+
+      <section className="warehouse-rule-banner">
+        <Layers3 size={22} />
+        <div><strong>Regla de almacenamiento activa</strong><p>Se deja un mes de demanda disponible en suelo después del picking. El sobrante sube a altura y solo se fusiona si coinciden exactamente SKU, lote, fabricación y vencimiento.</p></div>
+      </section>
+
+      {!!dataset.warnings.length && (
+        <section className="warehouse-warning-list"><CircleAlert size={19} /><div><strong>Observaciones de la importación</strong>{dataset.warnings.slice(0, 4).map((warning) => <p key={warning}>{warning}</p>)}</div></section>
+      )}
+
+      <section className="panel warehouse-map-panel">
+        <div className="warehouse-toolbar">
+          <label className="search-box warehouse-search"><Search size={18} /><span className="sr-only">Buscar ubicación, SKU o lote</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar ubicación, SKU, producto o lote" /></label>
+          <label className="select-box"><span className="sr-only">Filtrar pasillo</span><select value={aisleFilter} onChange={(event) => setAisleFilter(event.target.value)}><option value="all">Todos los pasillos</option>{Array.from({ length: dataset.config.aisleCount }, (_, index) => <option key={index + 1} value={index + 1}>Pasillo {index + 1}</option>)}</select></label>
+          <label className="select-box"><span className="sr-only">Filtrar familia</span><select value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value)}><option value="all">Todas las familias</option>{families.map((family) => <option key={family} value={family}>{family}</option>)}</select></label>
+          <label className="select-box"><span className="sr-only">Filtrar ocupación</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todas</option><option value="occupied">Ocupadas</option><option value="empty">Vacías</option><option value="picking">Con picking</option><option value="apq">Solo APQ</option></select></label>
+        </div>
+        <div className="warehouse-legend"><span><i className="legend-dot empty" /> Vacía</span><span><i className="legend-dot occupied" /> Ocupada</span><span><i className="legend-dot picking" /> Picking pendiente</span><span><i className="legend-dot apq" /> APQ</span></div>
+        <div className="aisle-stack">
+          {visibleAisles.map((aisle) => {
+            const aisleLocations = locations.filter((location) => location.aisle === aisle);
+            const aisleFamily = dataset.aisleFamilies[aisle] || (dataset.config.apqAisles.includes(aisle) ? "APQ" : "Sin asignar");
+            return (
+              <article className={`aisle-card ${dataset.config.apqAisles.includes(aisle) ? "aisle-apq" : ""}`} key={aisle}>
+                <div className="aisle-heading"><div><span>Pasillo {String(aisle).padStart(2, "0")}</span><strong>{aisleFamily}</strong></div><small>{aisleLocations.filter((location) => location.contents.length).length}/{aisleLocations.length} ocupadas</small></div>
+                <div className="rack-scroll">
+                  <div className="rack-grid" style={{ gridTemplateColumns: `72px repeat(${dataset.config.baysPerAisle}, minmax(126px, 1fr))` }}>
+                    <div className="rack-corner">Altura</div>
+                    {Array.from({ length: dataset.config.baysPerAisle }, (_, index) => <div className="rack-bay-label" key={`bay-${index + 1}`}>Módulo {String(index + 1).padStart(2, "0")}</div>)}
+                    {Array.from({ length: dataset.config.levelCount }, (_, index) => dataset.config.levelCount - index).flatMap((level) => [
+                      <div className="rack-level-label" key={`level-${level}`}>{level === 1 ? "Suelo" : `A${level}`}</div>,
+                      ...Array.from({ length: dataset.config.baysPerAisle }, (_, bayIndex) => {
+                        const location = aisleLocations.find((item) => item.level === level && item.bay === bayIndex + 1) as WarehouseLocation;
+                        const matched = matchesLocation(location);
+                        const first = location.contents[0];
+                        return (
+                          <button
+                            className={`location-slot ${location.contents.length ? "occupied" : "empty"} ${location.zone === "APQ" ? "apq" : ""} ${location.pendingPicking ? "has-picking" : ""} ${matched ? "" : "filtered"}`}
+                            key={location.code}
+                            onClick={() => setSelectedLocation(location)}
+                            type="button"
+                          >
+                            <span className="location-code">{location.code}</span>
+                            {first ? <><strong>{first.sku}</strong><span>{decimal.format(location.quantity)} ud. · Lote {first.batch || "—"}</span>{location.pendingPicking > 0 && <b><ListChecks size={12} /> Salen {decimal.format(location.pendingPicking)}</b>}</> : <><PackageOpen size={17} /><span>Libre</span></>}
+                          </button>
+                        );
+                      }),
+                    ])}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          {!visibleAisles.length && <div className="empty-state warehouse-empty"><Search size={24} /><strong>No hay ubicaciones que coincidan</strong><span>Cambia los filtros o el término de búsqueda.</span></div>}
+        </div>
+      </section>
+
+      <section className="panel movement-panel">
+        <div className="panel-heading"><div><span className="panel-kicker">Plan logístico explicable</span><h2>Movimientos recomendados</h2></div><span className="movement-count">{moves.length} acciones</span></div>
+        <div className="table-scroll">
+          <table className="movement-table">
+            <thead><tr><th>Movimiento</th><th>SKU / Producto</th><th>Cantidad</th><th>Origen</th><th>Destino</th><th>Motivo y control de lote</th></tr></thead>
+            <tbody>
+              {moves.map((move) => {
+                const meta = movementMeta(move);
+                const Icon = meta.icon;
+                return <tr key={move.id}><td><span className={`movement-type ${meta.tone}`}><Icon size={16} />{meta.label}</span></td><td><span className="sku-line">{move.sku}</span><span className="product-line">{move.product}</span></td><td><strong>{decimal.format(move.quantity)} ud.</strong></td><td><code>{move.from}</code></td><td>{move.to ? <code>{move.to}</code> : <span className="no-target">Sin hueco</span>}</td><td><strong>{move.title}</strong><p>{move.reason}</p><small>{move.lotRule}</small></td></tr>;
+              })}
+              {!moves.length && <tr><td colSpan={6}><div className="empty-state"><CheckCircle2 size={24} /><strong>Distribución equilibrada</strong><span>No se requieren movimientos de altura o reposición.</span></div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <WarehouseLocationDrawer location={selectedLocation} onClose={() => setSelectedLocation(null)} />
     </div>
   );
 }
@@ -610,17 +816,17 @@ function UploadModal({
         <button className="modal-close" aria-label="Cerrar importación" onClick={onClose} type="button"><X size={20} /></button>
         <span className="modal-icon"><FileSpreadsheet size={26} /></span>
         <h2 id="upload-title">Analiza tu inventario</h2>
-        <p>Sube un CSV y StockFlow IA calculará automáticamente ABC, cobertura, rotación y acciones recomendadas.</p>
+        <p>Sube un Excel o CSV con una fila por ubicación ocupada. StockFlow IA generará también todos los huecos vacíos del almacén.</p>
         <div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>
           <Upload size={30} aria-hidden="true" />
-          <strong>Arrastra aquí tu archivo CSV</strong>
+          <strong>Arrastra aquí tu archivo Excel o CSV</strong>
           <span>o selecciónalo desde tu dispositivo</span>
           <button className="primary-button compact" disabled={processing} onClick={() => inputRef.current?.click()} type="button">{processing ? <RefreshCw className="spin" size={18} /> : <Upload size={18} />}{processing ? "Analizando…" : "Seleccionar archivo"}</button>
-          <input ref={inputRef} className="sr-only" type="file" accept=".csv,text/csv,.txt" onChange={selectFile} />
+          <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.csv,text/csv,.txt" onChange={selectFile} />
         </div>
         {!!errors.length && <div className="upload-errors" role="alert"><strong>Revisa el archivo:</strong><ul>{errors.map((error) => <li key={error}>{error}</li>)}</ul></div>}
         <div className="modal-actions">
-          <button className="template-button" onClick={onDownloadTemplate} type="button"><Download size={17} /> Descargar plantilla CSV</button>
+          <button className="template-button" onClick={onDownloadTemplate} type="button"><Download size={17} /> Descargar plantilla Excel</button>
           <span><ShieldCheck size={16} /> Tus datos se procesan localmente</span>
         </div>
       </section>
@@ -663,6 +869,7 @@ export default function Home() {
   const [activeView, setActiveView] = useState<View>("resumen");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [inventory, setInventory] = useState<RawInventoryItem[]>(SAMPLE_INVENTORY);
+  const [warehouse, setWarehouse] = useState<WarehouseDataset>(SAMPLE_WAREHOUSE);
   const [datasetName, setDatasetName] = useState("Inventario de demostración");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
@@ -697,26 +904,35 @@ export default function Home() {
     setProcessing(true);
     setUploadErrors([]);
     try {
-      if (!file.name.toLowerCase().endsWith(".csv") && !file.name.toLowerCase().endsWith(".txt")) {
-        setUploadErrors(["Selecciona un archivo CSV válido."]);
+      const extension = file.name.toLowerCase().split(".").pop();
+      if (!extension || !["xlsx", "csv", "txt"].includes(extension)) {
+        setUploadErrors(["Selecciona un archivo Excel (.xlsx) o CSV válido."]);
         return;
       }
-      if (file.size > 5_000_000) {
-        setUploadErrors(["El archivo supera 5 MB. Divide el inventario en un archivo más pequeño."]);
+      if (file.size > 10_000_000) {
+        setUploadErrors(["El archivo supera 10 MB. Divide el inventario en un archivo más pequeño."]);
         return;
       }
-      const parsed = parseInventoryCsv(await file.text());
-      if (parsed.errors.length || !parsed.items.length) {
+      let parsed: ReturnType<typeof parseWarehouseCsv>;
+      if (extension === "xlsx") {
+        const { readSheet } = await import("read-excel-file/browser");
+        const rows = await readSheet(file);
+        parsed = parseWarehouseRows(rows);
+      } else {
+        parsed = parseWarehouseCsv(await file.text());
+      }
+      if (parsed.errors.length || !parsed.items.length || !parsed.dataset) {
         setUploadErrors(parsed.errors.length ? parsed.errors : ["No se encontraron productos válidos."]);
         return;
       }
       setInventory(parsed.items);
+      setWarehouse(parsed.dataset);
       setDatasetName(file.name.replace(/\.[^.]+$/, ""));
       setCountEntriesByCampaign({});
       setCompletedCampaigns([]);
       setUploadOpen(false);
-      setActiveView("resumen");
-      showToast(`${parsed.items.length} referencias analizadas correctamente`);
+      setActiveView("almacen");
+      showToast(`${parsed.items.length} SKU y ${buildWarehouseLocations(parsed.dataset).length} ubicaciones generadas`);
     } catch {
       setUploadErrors(["No pudimos leer el archivo. Comprueba su formato e inténtalo de nuevo."]);
     } finally {
@@ -729,8 +945,41 @@ export default function Home() {
     showToast("Informe CSV preparado");
   };
 
+  const exportWarehouse = () => {
+    downloadTextFile("stockflow_mapa_almacen.csv", exportWarehouseCsv(buildWarehouseLocations(warehouse)));
+    showToast("Mapa completo de ubicaciones preparado");
+  };
+
+  const downloadWarehouseTemplate = async () => {
+    const { default: writeExcelFile } = await import("write-excel-file/browser");
+    const inventoryRows = createWarehouseTemplateRows().map((row, rowIndex) => row.map((value) => rowIndex === 0
+      ? { value, fontWeight: "bold" as const, backgroundColor: "#DFF8F6", textColor: "#063B48", wrap: true }
+      : value));
+    const inventoryColumns = [
+      { wch: 14 }, { wch: 28 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+      { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 15 },
+      { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 22 }, { wch: 18 },
+    ].map((column) => ({ width: column.wch }));
+    const instructionsRows = [
+      [{ value: "STOCKFLOW IA — PLANTILLA DE UBICACIONES", fontWeight: "bold" as const, fontSize: 16, textColor: "#063B48" }],
+      ["Utiliza una fila por ubicación ocupada. Repite el SKU si está distribuido en varias ubicaciones."],
+      ["total_pasillos, modulos_por_pasillo y alturas_almacen pueden informarse solo en la primera fila."],
+      ["Las alturas admitidas son de 5 a 7. La altura 1 se considera suelo/picking; de 2 en adelante, reserva."],
+      ["Marca APQ=SI para mercancía peligrosa. Nunca se mezcla con ubicaciones generales."],
+      ["La fusión solo se recomienda cuando coinciden SKU, lote, fecha de fabricación y fecha de vencimiento."],
+      ["picking_pendiente indica las unidades comprometidas en pedidos próximos."],
+      ["No incluyas datos personales ni información real sensible en la demostración del hackathon."],
+    ];
+    await writeExcelFile([
+      { data: inventoryRows, sheet: "Inventario", columns: inventoryColumns, stickyRowsCount: 1 },
+      { data: instructionsRows, sheet: "Instrucciones", columns: [{ width: 115 }] },
+    ]).toFile("stockflow_plantilla_ubicaciones.xlsx");
+    showToast("Plantilla Excel preparada");
+  };
+
   const restoreDemo = () => {
     setInventory(SAMPLE_INVENTORY);
+    setWarehouse(SAMPLE_WAREHOUSE);
     setDatasetName("Inventario de demostración");
     setCountEntriesByCampaign({});
     setCompletedCampaigns(["2026-1"]);
@@ -795,12 +1044,13 @@ export default function Home() {
 
         {activeView === "resumen" && <Dashboard analysis={analysis} onAnalyze={() => { setUploadErrors([]); setUploadOpen(true); }} onViewAll={() => navigate("acciones")} onSelect={setSelectedItem} />}
         {activeView === "inventario" && <InventoryView items={analysis.items} onUpload={() => { setUploadErrors([]); setUploadOpen(true); }} onExport={exportResults} onSelect={setSelectedItem} />}
+        {activeView === "almacen" && <WarehouseView dataset={warehouse} analysis={analysis} onUpload={() => { setUploadErrors([]); setUploadOpen(true); }} onExport={exportWarehouse} />}
         {activeView === "acciones" && <ActionsView items={analysis.items} onExport={exportResults} onSelect={setSelectedItem} />}
         {activeView === "simulador" && <SimulatorView inventory={inventory} baseline={analysis} onSelect={setSelectedItem} />}
         {activeView === "conteos" && <CyclicCountsView items={analysis.items} plan={countPlan} entries={countEntriesByCampaign[activeCampaignId] ?? {}} activeCampaignId={activeCampaignId} completedCampaigns={completedCampaigns} onPlanChange={setCountPlan} onEntryChange={(sku, value) => setCountEntriesByCampaign((current) => ({ ...current, [activeCampaignId]: { ...(current[activeCampaignId] ?? {}), [sku]: value } }))} onCampaignChange={setActiveCampaignId} onFillSample={fillCountSample} onReset={resetCount} onComplete={completeCount} onNotify={showToast} />}
       </section>
 
-      <UploadModal open={uploadOpen} processing={processing} errors={uploadErrors} onClose={() => setUploadOpen(false)} onImport={importFile} onDownloadTemplate={() => downloadTextFile("stockflow_plantilla.csv", createTemplateCsv())} />
+      <UploadModal open={uploadOpen} processing={processing} errors={uploadErrors} onClose={() => setUploadOpen(false)} onImport={importFile} onDownloadTemplate={downloadWarehouseTemplate} />
       <DetailDrawer item={selectedItem} onClose={() => setSelectedItem(null)} />
       {toast && <div className="toast" role="status"><CheckCircle2 size={18} />{toast}</div>}
     </main>
