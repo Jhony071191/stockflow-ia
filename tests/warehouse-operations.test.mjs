@@ -10,6 +10,7 @@ import {
   createDemoWarehouseDataset,
   createWarehouseTemplateRows,
   inventoryFromWarehouse,
+  parseWarehouseCsv,
   parseWarehouseRows,
 } from "../lib/warehouse.ts";
 import { SAMPLE_INVENTORY } from "../lib/inventory.ts";
@@ -122,4 +123,26 @@ test("propone reponer desde altura hacia una ubicación de suelo", () => {
   };
   const moves = calculateWarehouseMoves(dataset, analyzeInventory(inventoryFromWarehouse(dataset)).items);
   assert.ok(moves.some((move) => move.type === "replenish" && move.from === "P01-M01-A05" && move.to === "P01-M01-A01"));
+});
+
+test("no propone un hueco vacío de una familia incompatible", () => {
+  const stock = {
+    id: "family-floor", sku: "FAM-1", product: "Producto familia A", family: "Familia A", quantity: 100,
+    unitCost: 2, leadTimeDays: 5, safetyStock: 2, salesM1: 10, salesM2: 10, salesM3: 10,
+    aisle: 1, bay: 1, level: 1, batch: "L-1", manufacturingDate: "2026-01-01", expiryDate: "2028-01-01",
+    hazardous: false, pendingPicking: 0, capacity: 200,
+  };
+  const dataset = {
+    config: { aisleCount: 1, baysPerAisle: 2, levelCount: 5, defaultCapacity: 200, apqAisles: [] },
+    aisleFamilies: { 1: "Familia B" }, locationOverrides: [], warnings: [], stocks: [stock],
+  };
+  const moves = calculateWarehouseMoves(dataset, analyzeInventory(inventoryFromWarehouse(dataset)).items);
+  assert.ok(moves.some((move) => move.type === "blocked"));
+  assert.equal(moves.some((move) => move.type === "elevate"), false);
+});
+
+test("el importador CSV heredado respeta campos entrecomillados", () => {
+  const parsed = parseWarehouseCsv('SKU,Producto,Cantidad,Coste unitario,Demanda mensual\nA-1,"Producto, especial",10,4,8');
+  assert.deepEqual(parsed.errors, []);
+  assert.equal(parsed.items[0].product, "Producto, especial");
 });

@@ -24,6 +24,13 @@ test("el simulador no reduce el riesgo cuando suben demanda y plazo", () => {
   assert.ok(projected.summary.totalSuggestedOrder >= baseline.summary.totalSuggestedOrder);
 });
 
+test("no presenta una clase ABC ficticia cuando faltan demanda o coste", () => {
+  const [sample] = SAMPLE_INVENTORY;
+  const analysis = analyzeInventory([{ ...sample, unitCost: 0, salesM1: 0, salesM2: 0, salesM3: 0, dataQuality: { demandAvailable: false, unitCostAvailable: false } }]);
+  assert.equal(analysis.items[0].abcAvailable, false);
+  assert.equal(analysis.summary.actionTodayCount, 0);
+});
+
 test("la plantilla CSV puede importarse sin errores", () => {
   const parsed = parseInventoryCsv(createTemplateCsv());
   assert.equal(parsed.errors.length, 0);

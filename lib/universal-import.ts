@@ -70,6 +70,16 @@ export type UniversalImportDraft = {
   warnings: string[];
 };
 
+export type UniversalEnrichmentResult = {
+  dataset: WarehouseDataset | null;
+  items: ReturnType<typeof inventoryFromWarehouse>;
+  errors: string[];
+  warnings: string[];
+  updatedSkuCount: number;
+  updatedRowCount: number;
+  appliedFields: UniversalField[];
+};
+
 export const UNIVERSAL_FIELD_LABELS: Record<UniversalField, string> = {
   sku: "SKU / código de artículo",
   product: "Producto / descripción",
@@ -102,15 +112,17 @@ export const UNIVERSAL_FIELD_LABELS: Record<UniversalField, string> = {
 };
 
 export const UNIVERSAL_EDITABLE_FIELDS: UniversalField[] = [
-  "sku", "product", "quantity", "family", "unitCost", "demand", "batch", "manufacturing", "expiry",
-  "zone", "aisle", "bay", "level", "hazardous", "pending", "grade", "holdCode",
+  "sku", "product", "quantity", "family", "unitCost", "demand", "salesM1", "salesM2", "salesM3",
+  "leadTime", "safetyStock", "location", "zone", "aisle", "bay", "level", "batch", "manufacturing",
+  "expiry", "hazardous", "pending", "capacity", "totalAisles", "baysPerAisle", "totalLevels", "grade",
+  "holdCode", "pickingIndicator",
 ];
 
 const FIELD_ALIASES: Record<UniversalField, string[]> = {
   sku: ["sku", "item", "item_code", "item_number", "codigo", "codigo_articulo", "codigo_producto", "referencia", "reference", "part", "part_number", "prtnum", "material", "material_number", "article_code", "code_article", "codigo_artigo"],
   product: ["producto", "product", "nombre", "name", "descripcion", "description", "item_description", "designation", "libelle", "articulo", "article", "produto", "descricao"],
   family: ["familia", "family", "categoria", "category", "grupo", "group", "grupo_familiar", "product_family", "commodity", "famille", "categorie"],
-  quantity: ["cantidad_ubicacion", "cantidad", "quantity", "qty", "qte", "stock", "stock_actual", "current_stock", "on_hand", "on_hand_qty", "available_qty", "existencias", "untqty", "total_untqty", "menge", "quantite", "quantidade"],
+  quantity: ["cantidad_ubicacion", "cantidad", "cantidades", "unidades", "quantity", "qty", "qte", "stock", "stock_actual", "current_stock", "on_hand", "on_hand_qty", "available_qty", "existencias", "untqty", "total_untqty", "menge", "quantite", "quantidade"],
   unitCost: ["coste_unitario", "costo_unitario", "unit_cost", "unit_price", "coste", "costo", "precio_compra", "purchase_price", "prix_unitaire", "preco_unitario"],
   leadTime: ["lead_time_dias", "lead_time", "plazo_entrega", "plazo_reposicion", "delivery_time", "replenishment_time", "delai", "lieferzeit"],
   safetyStock: ["stock_seguridad", "safety_stock", "stock_minimo", "minimum_stock", "min_stock", "stock_securite"],
@@ -641,4 +653,282 @@ export function translateUniversalDraft(draft: UniversalImportDraft, mapping: Un
     },
   };
   return { dataset, items: inventoryFromWarehouse(dataset), errors: [], warnings: dataset.warnings };
+}
+
+const ENRICHMENT_VALUE_FIELDS: UniversalField[] = [
+  "product", "family", "quantity", "unitCost", "leadTime", "safetyStock", "demand", "salesM1", "salesM2",
+  "salesM3", "location", "zone", "aisle", "bay", "level", "batch", "manufacturing", "expiry", "hazardous",
+  "pending", "capacity", "totalAisles", "baysPerAisle", "totalLevels", "grade", "holdCode",
+];
+
+export function enrichWarehouseDataset(
+  baseDataset: WarehouseDataset,
+  draft: UniversalImportDraft,
+  mapping: UniversalMapping = draft.mapping,
+  source: { name?: string; format?: string } = {},
+): UniversalEnrichmentResult {
+  if (mapping.sku === null) {
+    return { dataset: null, items: [], errors: ["Para complementar datos debes asignar la columna SKU."], warnings: [], updatedSkuCount: 0, updatedRowCount: 0, appliedFields: [] };
+  }
+  const mappedValueFields = ENRICHMENT_VALUE_FIELDS.filter((field) => mapping[field] !== null);
+  if (!mappedValueFields.length && mapping.locationStart === null) {
+    return { dataset: null, items: [], errors: ["Asigna al menos un dato adicional al SKU para complementar el inventario."], warnings: [], updatedSkuCount: 0, updatedRowCount: 0, appliedFields: [] };
+  }
+
+  const dataset: WarehouseDataset = {
+    ...baseDataset,
+    config: { ...baseDataset.config, apqAisles: [...baseDataset.config.apqAisles] },
+    stocks: baseDataset.stocks.map((stock) => ({ ...stock, dataQuality: stock.dataQuality ? { ...stock.dataQuality } : undefined })),
+    locationOverrides: baseDataset.locationOverrides.map((override) => ({ ...override })),
+    aisleFamilies: { ...baseDataset.aisleFamilies },
+    warnings: [...baseDataset.warnings],
+    capabilities: baseDataset.capabilities ? { ...baseDataset.capabilities } : undefined,
+    dataSources: [...(baseDataset.dataSources ?? [])],
+  };
+  const rows = draft.rows.slice(draft.headerRowIndex + 1).filter((row) => row.some((value) => hasCellValue(value)));
+  const read = (row: unknown[], field: UniversalField) => mapping[field] === null ? "" : row[mapping[field] as number];
+  const bySku = new Map<string, WarehouseStock[]>();
+  dataset.stocks.forEach((stock) => {
+    const key = normalizeUniversalHeader(stock.sku);
+    bySku.set(key, [...(bySku.get(key) ?? []), stock]);
+  });
+  const appliedFields = new Set<UniversalField>();
+  const updatedSkus = new Set<string>();
+  const unmatchedSkus = new Set<string>();
+  const ambiguousRows: number[] = [];
+  let updatedRowCount = 0;
+  const qualityFor = (stock: WarehouseStock) => ({
+    productAvailable: stock.dataQuality?.productAvailable ?? dataset.capabilities?.product ?? true,
+    familyAvailable: stock.dataQuality?.familyAvailable ?? dataset.capabilities?.family ?? true,
+    unitCostAvailable: stock.dataQuality?.unitCostAvailable ?? dataset.capabilities?.unitCost ?? true,
+    demandAvailable: stock.dataQuality?.demandAvailable ?? dataset.capabilities?.demand ?? true,
+  });
+
+  rows.forEach((row, index) => {
+    const rowNumber = draft.headerRowIndex + index + 2;
+    const sku = cellText(read(row, "sku"));
+    if (!sku) return;
+    const skuStocks = bySku.get(normalizeUniversalHeader(sku)) ?? [];
+    if (!skuStocks.length) {
+      unmatchedSkus.add(sku);
+      return;
+    }
+    const locationParts = mapping.locationStart !== null
+      ? row.slice(mapping.locationStart, (mapping.locationEnd ?? mapping.locationStart) + 1).map(cellText).filter(Boolean)
+      : mapping.location !== null ? [cellText(read(row, "location"))].filter(Boolean) : [];
+    const sourceLocation = locationParts.join("-");
+    const explicitAisle = parseNumber(read(row, "aisle"), 0);
+    const explicitBay = parseNumber(read(row, "bay"), 0);
+    const explicitLevel = parseNumber(read(row, "level"), 0);
+    let locationStocks = sourceLocation
+      ? skuStocks.filter((stock) => normalizeUniversalHeader(stock.sourceLocationCode) === normalizeUniversalHeader(sourceLocation))
+      : [];
+    if (!locationStocks.length && explicitAisle && explicitBay) {
+      locationStocks = skuStocks.filter((stock) => stock.aisle === Math.round(explicitAisle)
+        && stock.bay === Math.round(explicitBay)
+        && (!explicitLevel || stock.level === deriveLevel(explicitLevel, stock.sourceZone, [])));
+    }
+    if (!locationStocks.length && skuStocks.length === 1 && !sourceLocation) locationStocks = skuStocks;
+    const businessTargets = locationStocks.length ? locationStocks : skuStocks;
+    let rowApplied = false;
+    const apply = (field: UniversalField, targets: WarehouseStock[], callback: (stock: WarehouseStock, value: unknown) => boolean | void) => {
+      const value = read(row, field);
+      if (!targets.length || mapping[field] === null || !hasCellValue(value)) return;
+      let applied = false;
+      targets.forEach((stock) => {
+        if (callback(stock, value) !== false) applied = true;
+      });
+      if (!applied) return;
+      appliedFields.add(field);
+      rowApplied = true;
+    };
+
+    apply("product", businessTargets, (stock, value) => {
+      stock.product = cellText(value);
+      stock.dataQuality = { ...qualityFor(stock), productAvailable: true };
+    });
+    apply("family", businessTargets, (stock, value) => {
+      stock.family = cellText(value);
+      stock.dataQuality = { ...qualityFor(stock), familyAvailable: true };
+      if (!dataset.aisleFamilies[stock.aisle] || dataset.aisleFamilies[stock.aisle] === "Sin asignar") dataset.aisleFamilies[stock.aisle] = stock.family;
+    });
+    apply("unitCost", businessTargets, (stock, value) => {
+      const parsed = parseNumber(value, Number.NaN);
+      if (!Number.isNaN(parsed)) {
+        stock.unitCost = parsed;
+        stock.dataQuality = { ...qualityFor(stock), unitCostAvailable: true };
+        return true;
+      }
+      return false;
+    });
+    apply("leadTime", businessTargets, (stock, value) => {
+      const parsed = parseNumber(value, Number.NaN);
+      if (!Number.isNaN(parsed)) {
+        stock.leadTimeDays = parsed;
+        return true;
+      }
+      return false;
+    });
+    apply("safetyStock", businessTargets, (stock, value) => {
+      const parsed = parseNumber(value, Number.NaN);
+      if (!Number.isNaN(parsed)) {
+        stock.safetyStock = parsed;
+        return true;
+      }
+      return false;
+    });
+    apply("demand", businessTargets, (stock, value) => {
+      const parsed = parseNumber(value, Number.NaN);
+      if (!Number.isNaN(parsed)) {
+        stock.salesM1 = parsed;
+        stock.salesM2 = parsed;
+        stock.salesM3 = parsed;
+        stock.dataQuality = { ...qualityFor(stock), demandAvailable: true };
+        return true;
+      }
+      return false;
+    });
+    (["salesM1", "salesM2", "salesM3"] as UniversalField[]).forEach((field) => apply(field, businessTargets, (stock, value) => {
+      const parsed = parseNumber(value, Number.NaN);
+      if (!Number.isNaN(parsed)) {
+        if (field === "salesM1") stock.salesM1 = parsed;
+        if (field === "salesM2") stock.salesM2 = parsed;
+        if (field === "salesM3") stock.salesM3 = parsed;
+        stock.dataQuality = { ...qualityFor(stock), demandAvailable: true };
+        return true;
+      }
+      return false;
+    }));
+    apply("hazardous", businessTargets, (stock, value) => { stock.hazardous = parseBoolean(value); });
+
+    const locationSpecificMapped = (["quantity", "pending", "batch", "manufacturing", "expiry", "capacity", "grade", "holdCode"] as UniversalField[])
+      .some((field) => mapping[field] !== null && hasCellValue(read(row, field)));
+    if (locationSpecificMapped && !locationStocks.length) ambiguousRows.push(rowNumber);
+    apply("quantity", locationStocks, (stock, value) => {
+      const parsed = parseNumber(value, Number.NaN);
+      if (!Number.isNaN(parsed)) {
+        stock.quantity = parsed;
+        return true;
+      }
+      return false;
+    });
+    apply("pending", locationStocks, (stock, value) => {
+      const parsed = parseNumber(value, Number.NaN);
+      if (!Number.isNaN(parsed)) {
+        stock.pendingPicking = parsed;
+        return true;
+      }
+      return false;
+    });
+    apply("batch", locationStocks, (stock, value) => { stock.batch = cellText(value); });
+    apply("manufacturing", locationStocks, (stock, value) => { stock.manufacturingDate = cleanDate(value); });
+    apply("expiry", locationStocks, (stock, value) => { stock.expiryDate = cleanDate(value); });
+    apply("capacity", locationStocks, (stock, value) => {
+      const parsed = parseNumber(value, Number.NaN);
+      if (!Number.isNaN(parsed)) {
+        stock.capacity = Math.max(stock.quantity, parsed);
+        return true;
+      }
+      return false;
+    });
+    apply("grade", locationStocks, (stock, value) => { stock.qualityGrade = cellText(value); });
+    apply("holdCode", locationStocks, (stock, value) => { stock.holdCode = cellText(value); });
+    apply("zone", locationStocks.length ? locationStocks : businessTargets, (stock, value) => {
+      const zone = translateZone(value);
+      if (zone) {
+        stock.sourceZone = zone;
+        if (zone === "APQ") stock.hazardous = true;
+      }
+    });
+    if (sourceLocation && locationStocks.length) {
+      locationStocks.forEach((stock) => { stock.sourceLocationCode = sourceLocation; });
+      appliedFields.add("location");
+      rowApplied = true;
+    }
+    if (explicitAisle && explicitBay && locationStocks.length) {
+      locationStocks.forEach((stock) => {
+        stock.aisle = Math.round(explicitAisle);
+        stock.bay = Math.round(explicitBay);
+        if (explicitLevel) stock.level = deriveLevel(explicitLevel, stock.sourceZone, []);
+      });
+      appliedFields.add("aisle");
+      appliedFields.add("bay");
+      if (explicitLevel) appliedFields.add("level");
+      rowApplied = true;
+    }
+
+    const totalAisles = parseNumber(read(row, "totalAisles"), 0);
+    const baysPerAisle = parseNumber(read(row, "baysPerAisle"), 0);
+    const totalLevels = parseNumber(read(row, "totalLevels"), 0);
+    if (mapping.totalAisles !== null && totalAisles) {
+      dataset.config.aisleCount = clamp(Math.round(totalAisles), 1, 40);
+      appliedFields.add("totalAisles");
+      rowApplied = true;
+    }
+    if (mapping.baysPerAisle !== null && baysPerAisle) {
+      dataset.config.baysPerAisle = clamp(Math.round(baysPerAisle), 1, 80);
+      appliedFields.add("baysPerAisle");
+      rowApplied = true;
+    }
+    if (mapping.totalLevels !== null && totalLevels) {
+      dataset.config.levelCount = clamp(Math.round(totalLevels), 5, 7);
+      appliedFields.add("totalLevels");
+      rowApplied = true;
+    }
+    if (rowApplied) {
+      updatedSkus.add(sku);
+      updatedRowCount += 1;
+    }
+  });
+
+  if (!updatedRowCount) {
+    const reason = unmatchedSkus.size
+      ? `No encontramos los SKU del documento en el inventario actual. Ejemplos: ${[...unmatchedSkus].slice(0, 4).join(", ")}.`
+      : "El documento no contenía valores aplicables al inventario actual.";
+    return { dataset: null, items: [], errors: [reason], warnings: [], updatedSkuCount: 0, updatedRowCount: 0, appliedFields: [] };
+  }
+  const fields = [...appliedFields];
+  const warnings: string[] = [];
+  if (unmatchedSkus.size) warnings.push(`${unmatchedSkus.size} SKU del documento no existen en el inventario actual y se omitieron.`);
+  if (ambiguousRows.length) warnings.push(`${ambiguousRows.length} filas tenían datos de lote, cantidad o picking sin una ubicación inequívoca; esos campos no se aplicaron.`);
+  const capabilities = dataset.capabilities ?? {
+    product: true,
+    family: true,
+    unitCost: true,
+    demand: true,
+    location: true,
+    completeLayout: dataset.layoutMode !== "source",
+    hazardous: true,
+    manufacturingDate: true,
+    expiryDate: true,
+    pendingPicking: true,
+  };
+  capabilities.product ||= fields.includes("product");
+  capabilities.family ||= fields.includes("family");
+  capabilities.unitCost ||= fields.includes("unitCost");
+  capabilities.demand ||= fields.some((field) => ["demand", "salesM1", "salesM2", "salesM3"].includes(field));
+  capabilities.location ||= fields.some((field) => ["location", "aisle", "bay", "level"].includes(field));
+  capabilities.hazardous ||= fields.some((field) => ["hazardous", "zone"].includes(field));
+  capabilities.manufacturingDate ||= fields.includes("manufacturing");
+  capabilities.expiryDate ||= fields.includes("expiry");
+  capabilities.pendingPicking ||= fields.includes("pending");
+  dataset.capabilities = capabilities;
+  dataset.warnings = [...new Set([...dataset.warnings, ...warnings])].slice(0, 20);
+  dataset.dataSources = [...(dataset.dataSources ?? []), {
+    name: source.name || "Documento complementario",
+    format: source.format || "Documento",
+    mode: "enrich",
+    rows: updatedRowCount,
+    mappedFields: fields.length,
+    importedAt: new Date().toISOString(),
+  }];
+  return {
+    dataset,
+    items: inventoryFromWarehouse(dataset),
+    errors: [],
+    warnings,
+    updatedSkuCount: updatedSkus.size,
+    updatedRowCount,
+    appliedFields: fields,
+  };
 }

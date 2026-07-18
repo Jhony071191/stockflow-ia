@@ -4,7 +4,7 @@
 
 ## 1. Descripción del proyecto
 
-StockFlow IA es una aplicación web que transforma datos básicos de inventario en decisiones operativas explicadas y priorizadas. Está dirigida a pequeños almacenes, comercios, organizaciones sociales y profesionales que trabajan con hojas de cálculo y necesitan detectar rápidamente roturas de stock, exceso de mercancía, referencias sin rotación y riesgos de caducidad.
+StockFlow IA es una aplicación web que transforma documentos empresariales heterogéneos en decisiones operativas explicadas y priorizadas. Está dirigida a pequeños almacenes, comercios, organizaciones sociales y profesionales que trabajan con hojas de cálculo, exportaciones WMS/ERP, JSON, PDF, Word o reportes de texto y necesitan detectar rápidamente roturas de stock, exceso de mercancía, referencias sin rotación y riesgos de caducidad.
 
 Su propuesta de valor se resume en una frase:
 
@@ -33,12 +33,27 @@ StockFlow IA responde estas preguntas mediante reglas transparentes y métricas 
 
 No se escribió manualmente la lógica principal. El código, la interfaz y las pruebas fueron generados y refinados mediante instrucciones dadas a Codex.
 
+### 3.1 Auditoría interna simulando al jurado
+
+Esta evaluación es una autoauditoría y no representa una nota oficial de Big School.
+
+| Criterio | Fortaleza actual | Debilidad detectada y corrección |
+|---|---|---|
+| Complejidad y funcionalidad | Importación, análisis, mapa, movimientos, simulador, conteos y exportaciones integrados | Se completó la lectura multiformato, el enriquecimiento entre documentos, el conteo de gracia y el informe de seis hojas |
+| Innovación y originalidad | Traducción empresarial y recomendaciones físicas explicables | Se hizo visible la inteligencia mediante auditoría 0–100, cobertura por capacidad y prioridades de datos |
+| Calidad del Vibe Coding | Evolución trazable mediante prompts, pruebas e iteraciones | Se amplió el historial y se documentó la revisión completa solicitada por el participante |
+| Experiencia de usuario | Identidad premium consistente, navegación clara y responsive | Se creó un único centro de documentos con dos modos, formatos visibles, avisos de OCR y mapeo agrupado |
+| Utilidad y aplicabilidad | Resuelve decisiones reales de stock, ubicaciones, APQ, lotes y picking | Se evitó ABC ficticio, valor total engañoso y destinos familiares incompatibles; se permite unir fuentes departamentales |
+
+La principal fortaleza competitiva es que StockFlow IA no se limita a visualizar un Excel: traduce datos heterogéneos, declara qué sabe y qué no sabe, y convierte la información verificable en decisiones físicas explicadas. La limitación honesta es que un PDF escaneado necesita OCR y que ningún destino vacío puede deducirse si el WMS no aporta un maestro completo.
+
 ## 4. Funcionalidades principales
 
-### 4.1 Traductor universal de Excel/CSV
+### 4.1 Centro universal de documentos
 
 - Carga mediante selector o arrastrar y soltar.
-- Acepta Excel `.xlsx` y CSV con delimitadores por coma o punto y coma.
+- Acepta Excel `.xlsx`, CSV, TSV, JSON, PDF con texto, Word `.docx` y TXT.
+- Extrae hojas, tablas, objetos JSON anidados, registros clave-valor y reportes tabulados.
 - Examina todas las hojas y elige la tabla de inventario con mayor confianza.
 - Localiza la fila real de encabezados aunque existan títulos o metadatos anteriores.
 - Reconoce alias habituales de ERP/WMS en español, inglés, francés y otros formatos frecuentes.
@@ -46,14 +61,26 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 - Reconstruye direcciones logísticas divididas en varias columnas y conserva el código original.
 - Presenta un asistente de correspondencia editable antes de incorporar los datos.
 - Recuerda localmente la correspondencia de cada estructura de encabezados.
-- Solo exige SKU y cantidad; cualquier otro campo ausente se declara como no disponible.
+- En modo **Nuevo análisis** solo exige SKU y cantidad; cualquier otro campo ausente se declara como no disponible.
+- En modo **Complementar datos** exige SKU y al menos un campo adicional, y une la nueva información por SKU sin duplicar el inventario.
+- Los campos de ubicación, cantidad, lote y picking solo se actualizan cuando la ubicación puede identificarse de manera inequívoca.
+- Permite incorporar demanda, costes, familias, lotes, fechas, picking y capacidad desde documentos independientes.
 - Nunca interpreta un indicador de picking 0/1 como unidades comprometidas.
-- Limita el tamaño del archivo a 10 MB.
+- Limita el tamaño del archivo a 20 MB.
 - Incluye una plantilla Excel de dos hojas con datos ficticios e instrucciones.
 - Admite una fila por ubicación y agrega automáticamente el stock por SKU.
 - Activa un modo de origen seguro cuando no existe un maestro completo de huecos: muestra únicamente direcciones confirmadas y pausa los destinos no justificables.
+- Detecta PDF escaneados sin texto y solicita OCR o una exportación digital en lugar de inventar una tabla.
 
-### 4.2 Motor analítico
+### 4.2 Auditoría de preparación operativa
+
+- Puntúa de 0 a 100 la preparación real de los datos.
+- Mide SKU/cantidades, ubicaciones, demanda, costes, familias, lotes, vencimientos y picking.
+- Distingue capacidad completa, parcial y pendiente mediante porcentajes de cobertura.
+- Prioriza los tres datos faltantes que más funcionalidad desbloquearían.
+- Muestra cuántas fuentes se han integrado y cuántos módulos pueden operar.
+
+### 4.3 Motor analítico
 
 - Clasificación ABC.
 - Demanda media de los últimos tres periodos.
@@ -65,8 +92,9 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 - Valor de existencias.
 - Detección de caducidad próxima.
 - Suspensión explícita de cobertura, sobrestock, reposición, valor y ABC cuando faltan las variables que necesita cada cálculo.
+- La clase ABC nunca se sustituye por una clase C ficticia cuando faltan demanda o coste.
 
-### 4.3 Centro de acciones
+### 4.4 Centro de acciones
 
 - Priorización por nivel crítico, atención o estable.
 - Explicación de la situación detectada.
@@ -74,7 +102,7 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 - Panel lateral con variables y fórmulas utilizadas.
 - Filtros por estado y clasificación ABC.
 
-### 4.4 Simulador de escenarios
+### 4.5 Simulador de escenarios
 
 - Variación de demanda entre −20 % y +50 %.
 - Retraso adicional del proveedor entre 0 y 30 días.
@@ -82,15 +110,18 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 - Recalcula SKU en riesgo, unidades recomendadas e inversión estimada.
 - No modifica los datos originales.
 
-### 4.5 Exportación
+### 4.6 Exportación
 
 - Descarga CSV del análisis completo.
 - Incluye ABC, cobertura, punto de pedido, pedido sugerido, estado y recomendación.
+- Informe Excel integral con seis hojas: resumen ejecutivo, inventario, ubicaciones, movimientos, calidad de datos y plan de conteos.
+- Los totales económicos parciales se identifican como valor conocido y no como valor completo.
 
-### 4.6 Conteos cíclicos por cliente
+### 4.7 Conteos cíclicos por cliente
 
 - Configuración del cliente, año y tolerancia permitida.
 - Modalidad contractual de uno o dos conteos durante el año.
+- Conteo de gracia opcional con fecha independiente, sin alterar el servicio contratado.
 - Fechas independientes para cada campaña.
 - Orden recomendado de ejecución A, B y C.
 - Registro de stock físico por referencia.
@@ -100,7 +131,7 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 - Cierre de campaña únicamente cuando todas las referencias han sido contadas.
 - Exportación de un acta CSV independiente por campaña.
 
-### 4.7 Mapa y slotting del almacén
+### 4.8 Mapa y slotting del almacén
 
 - Generación de ubicaciones vacías y ocupadas cuando el archivo aporta un maestro estructurado del almacén.
 - Estructura por pasillo, módulo y entre 5 y 7 alturas; la altura 1 representa suelo/picking cuando esas coordenadas existen en el archivo.
@@ -113,6 +144,7 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 - Subida del excedente a altura conservando un mes de demanda disponible en suelo tras el picking.
 - Fusión únicamente cuando coinciden exactamente SKU, lote, fecha de fabricación y fecha de vencimiento.
 - Selección de un hueco vacío compatible cuando la fusión no es posible y el archivo confirma ese hueco.
+- Bloqueo explícito cuando el único hueco disponible pertenece a una familia incompatible.
 - Reposición desde reserva hacia una ubicación de suelo compatible, aplicando prioridad de vencimiento, solo cuando existen los datos necesarios.
 - Exportación del mapa completo si hay maestro o de las ubicaciones de origen confirmadas en los demás casos.
 
@@ -121,17 +153,20 @@ No se escribió manualmente la lógica principal. El código, la interfaz y las 
 La solución utiliza una arquitectura sin servidor para el tratamiento de los datos:
 
 1. **Capa de interfaz:** componentes React y estilos responsive.
-2. **Entrada:** archivo Excel o CSV seleccionado por el usuario.
-3. **Detector:** selección de hoja, fila de encabezados, columnas y muestras.
-4. **Traductor empresarial:** aliases, inferencia por valores, ubicación compuesta, perfil editable y matriz de capacidades.
-5. **Validación:** normalización de números, fechas, coordenadas y filas sin completar datos ausentes.
-6. **Motor analítico:** funciones TypeScript puras y deterministas.
-7. **Motor de almacén:** preservación de ubicaciones de origen o generación estructurada, segregación APQ y reglas de movimiento.
-8. **Módulo de conteos:** planificación, captura física y conciliación por campaña.
-9. **Presentación:** dashboard, mapa o tabla de origen, filtros, explicación y simulador.
-10. **Salida:** análisis, mapa de ubicaciones y actas CSV generados en el navegador.
+2. **Entrada multiformato:** XLSX, CSV, TSV, JSON, PDF con texto, DOCX o TXT seleccionado por el usuario.
+3. **Extractor documental:** convierte hojas, tablas y registros estructurados en matrices tabulares comunes.
+4. **Detector:** selección de hoja/página/tabla, fila de encabezados, columnas y muestras.
+5. **Traductor empresarial:** aliases, inferencia por valores, ubicación compuesta, perfil editable y matriz de capacidades.
+6. **Integrador:** crea un inventario nuevo o complementa por SKU datos procedentes de fuentes distintas, con protección para campos dependientes de ubicación.
+7. **Validación:** normalización de números, fechas, coordenadas y filas sin completar datos ausentes.
+8. **Auditoría de datos:** calcula cobertura por capacidad y preparación operativa ponderada.
+9. **Motor analítico:** funciones TypeScript puras y deterministas.
+10. **Motor de almacén:** preservación de ubicaciones de origen o generación estructurada, segregación APQ y reglas de movimiento.
+11. **Módulo de conteos:** planificación, captura física y conciliación por campaña.
+12. **Presentación:** dashboard, mapa o tabla de origen, filtros, explicación y simulador.
+13. **Salida:** informe Excel de seis hojas, análisis, mapa de ubicaciones y actas CSV generados en el navegador.
 
-El inventario se mantiene únicamente en memoria durante la sesión. No se utiliza base de datos ni se transmite el archivo a un servicio externo.
+El inventario se mantiene únicamente en memoria durante la sesión. No se utiliza base de datos ni se transmite el archivo a un servicio externo. Las bibliotecas de Excel, PDF y Word se cargan en el navegador únicamente cuando son necesarias.
 
 ## 6. Modelo de datos
 
@@ -251,6 +286,13 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 20. Incorporación de perfiles locales por estructura de archivo y modo seguro para datos parciales.
 21. Adaptación de dashboard, inventario, simulador, mapa y exportación para mostrar “No disponible” o “Pendiente” en lugar de inventar ceros.
 22. Seis nuevas pruebas para encabezados desplazados, corrección manual de hoja/fila, ubicación compuesta, múltiples hojas, formato mínimo, datos parciales y maestro completo.
+23. Revisión integral actuando como jurado especializado en IA, con evaluación de complejidad, innovación, calidad del Vibe Coding, experiencia de usuario y aplicabilidad.
+24. Ampliación del traductor a TSV, JSON, PDF con texto, Word y reportes TXT.
+25. Creación del modo “Complementar datos” para unir demanda, costes, familias, lotes, fechas y pedidos desde fuentes separadas sin duplicar cantidades.
+26. Incorporación de una auditoría operativa de 0 a 100 con cobertura completa, parcial o pendiente.
+27. Corrección preventiva de ABC ficticio, totales económicos parciales y destinos de familias incompatibles.
+28. Incorporación del conteo de gracia y del informe Excel integral de seis hojas.
+29. Nuevas pruebas de inteligencia documental, enriquecimiento, valores inválidos, cobertura parcial, compatibilidad familiar y CSV entrecomillado.
 
 ## 10. Challenges y soluciones
 
@@ -271,6 +313,24 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 **Challenge:** una extracción física puede contener SKU, lotes y cantidades, pero no coste, demanda, APQ o pedidos pendientes.
 
 **Solución:** solo SKU y cantidad son obligatorios. Una matriz de capacidades pausa cada cálculo que dependa de campos ausentes, muestra el motivo y permite seguir consultando el stock físico.
+
+### Unir información repartida entre departamentos
+
+**Challenge:** el inventario físico, la demanda, los costes y los pedidos próximos suelen exportarse desde sistemas o documentos diferentes.
+
+**Solución:** modo de enriquecimiento por SKU. Los datos comerciales pueden aplicarse a todas las posiciones del SKU, mientras cantidad, lote y picking exigen una ubicación inequívoca. Los SKU no encontrados y las filas ambiguas se informan y se omiten.
+
+### Comunicar calidad sin una falsa sensación de completitud
+
+**Challenge:** disponer del coste o la demanda de una sola referencia no significa que el análisis completo esté preparado.
+
+**Solución:** puntuación ponderada de 0 a 100 y porcentaje de cobertura por capacidad. La interfaz distingue completo, parcial y pendiente y propone el siguiente dato más valioso.
+
+### Extraer tablas desde documentos no tabulares
+
+**Challenge:** PDF, Word, JSON y reportes de texto no tienen una estructura uniforme.
+
+**Solución:** extractores especializados que convierten tablas, objetos anidados, registros clave-valor y texto alineado a un modelo tabular común. Los PDF se reconstruyen por posición visual y siempre exigen confirmación del mapeo.
 
 ### Distinguir ubicaciones confirmadas de un maestro completo
 
@@ -340,15 +400,25 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 - Generación estructurada de huecos cuando existen pasillo, módulo y altura.
 - Navegación accesible mediante botones y teclado.
 - Compatibilidad responsive definida para escritorio, tableta y móvil.
+- Conversión de JSON empresarial anidado a una tabla traducible.
+- Interpretación de registros clave-valor procedentes de Word o texto.
+- Reconstrucción de filas y columnas mediante posiciones de texto PDF.
+- Enriquecimiento de demanda y coste sin duplicar cantidades.
+- Rechazo de valores numéricos inválidos sin activar capacidades falsas.
+- Medición de cobertura parcial cuando solo una parte de los SKU tiene coste.
+- Ausencia de una clase ABC ficticia cuando faltan coste o demanda.
+- Conteo de gracia opcional independiente de uno o dos conteos contratados.
+- Bloqueo de un destino vacío perteneciente a una familia incompatible.
+- Conservación de campos CSV entrecomillados que contienen comas.
 
-Resultado actual: 18 pruebas lógicas superadas, ESLint sin errores y compilación desplegable correcta.
+Resultado actual: 29 pruebas lógicas superadas, prueba del HTML renderizado superada, TypeScript sin errores, ESLint sin errores y compilación desplegable correcta.
 
 ## 12. Privacidad, seguridad y ética
 
 - No se solicitan datos personales.
 - No se incluyen credenciales reales.
 - Los datos de demostración son ficticios.
-- Los archivos Excel y CSV se procesan localmente.
+- Todos los documentos compatibles se procesan localmente.
 - Las recomendaciones son apoyo a la decisión y muestran sus fundamentos.
 - El usuario conserva la responsabilidad sobre compras y ajustes reales.
 
@@ -358,7 +428,9 @@ Resultado actual: 18 pruebas lógicas superadas, ESLint sin errores y compilaci�
 - No se conecta a un ERP ni a proveedores.
 - El análisis utiliza tres periodos recientes y no sustituye una previsión estadística avanzada.
 - Los costes y plazos dependen de la calidad del archivo proporcionado.
-- La compatibilidad automática cubre formatos tabulares `.xlsx` y CSV; archivos protegidos, corruptos, macros, fórmulas no calculadas o estructuras no tabulares pueden requerir exportación previa o corrección manual del mapeo.
+- La compatibilidad automática cubre `.xlsx`, CSV, TSV, JSON, PDF con texto, `.docx` y TXT. Archivos protegidos, corruptos, macros, fórmulas no calculadas, formatos heredados `.xls`/`.doc` o estructuras no tabulares pueden requerir conversión previa o corrección manual del mapeo.
+- Los PDF escaneados sin texto seleccionable requieren OCR previo. StockFlow lo detecta y no inventa contenido.
+- “Cualquier documento” significa los formatos empresariales modernos compatibles y con información estructurable; ningún sistema puede interpretar con fiabilidad archivos cifrados, dañados o imágenes sin OCR.
 - La aplicación no puede deducir huecos vacíos que no aparezcan en el archivo ni proponer destinos fiables sin un maestro de ubicaciones y capacidades.
 - Sobrestock, cobertura, reposición y simulación requieren demanda, consumo o pedidos verificables; ABC económico y valor requieren además coste unitario.
 - El mapa es una herramienta de apoyo y no ejecuta movimientos físicos ni escribe en un WMS.

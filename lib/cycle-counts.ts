@@ -8,6 +8,8 @@ export type CycleCountPlan = {
   frequency: CountFrequency;
   firstDate: string;
   secondDate: string;
+  graceCount: boolean;
+  graceDate: string;
   tolerancePct: number;
 };
 
@@ -67,6 +69,15 @@ export function createCountCampaigns(plan: CycleCountPlan): CountCampaign[] {
       number: 2,
       label: "Segundo conteo",
       date: plan.secondDate || addSixMonths(plan.firstDate),
+    });
+  }
+
+  if (plan.graceCount) {
+    campaigns.push({
+      id: `${plan.year}-gracia`,
+      number: campaigns.length + 1,
+      label: "Conteo de gracia",
+      date: plan.graceDate || plan.secondDate || addSixMonths(plan.firstDate),
     });
   }
 
@@ -146,7 +157,7 @@ export function exportCountCsv(
     campaign.date,
     row.item.sku,
     row.item.product,
-    row.item.abcClass,
+    row.item.abcAvailable ? row.item.abcClass : "No disponible",
     row.item.currentStock,
     row.physicalCount ?? "Pendiente",
     row.difference ?? "",

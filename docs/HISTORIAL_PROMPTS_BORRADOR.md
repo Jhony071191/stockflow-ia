@@ -160,6 +160,20 @@
 
 **Resultado:** asistente “Traductor universal de inventarios”, detección y corrección de hoja/fila de encabezados, mapeo editable, perfiles locales, ubicación compuesta, modo seguro de datos parciales y seis pruebas adicionales. La validación alcanzó 18 pruebas lógicas, lint y compilación satisfactoria.
 
+## Prompt 17 — Auditoría de jurado y versión premium multiformato
+
+**Autor:** participante
+**Fecha:** 18/07/2026
+**Prompt literal:**
+
+> Quieronque actues por un momento como un jurado especializado en Ia le des un vistazo a mi proyecto veas sus puntos fuertes y debiles luego quiero que refuerces esos puntos debiles y mejores la aplicacion hadta dejarla en su forma mas premium y mejorada, que todos los apartados sirvan, que pueda leer cualquier do umento y volcar laninformacuon lara realizar todas las tareas necesarias y requeridas, tambien quiero que lo revises las veces que sean necesariasnpara dejarlo perfecto para lonque se va a utilizar.
+
+**Instrucción consolidada dada a Codex:**
+
+> Evalúa StockFlow IA según los criterios del jurado: complejidad y funcionalidad, innovación, calidad del Vibe Coding, experiencia de usuario y utilidad. Refuerza los puntos débiles sin inventar capacidades. Amplía la entrada a los formatos empresariales modernos más frecuentes, permite complementar un inventario con documentos separados por SKU, mide la cobertura real de los datos, elimina resultados engañosos, completa los conteos con una campaña de gracia, crea un informe integral y revisa repetidamente pruebas, tipos, lint, compilación, archivo empresarial real, documentación, repositorio y despliegue.
+
+**Resultado:** centro universal compatible con XLSX, CSV, TSV, JSON, PDF con texto, DOCX y TXT; modos de nuevo análisis y enriquecimiento; auditoría de preparación 0–100 con cobertura completa/parcial/pendiente; ABC y valor parcial honestos; conteo de gracia; compatibilidad familiar; informe Excel de seis hojas; 29 pruebas lógicas, HTML renderizado, TypeScript, ESLint y compilación superados. El Excel empresarial real se validó localmente sin incorporarlo al repositorio ni transmitir sus datos.
+
 ## Evidencias que deben incorporarse al Google Doc
 
 - Capturas o exportación de la conversación de Codex.

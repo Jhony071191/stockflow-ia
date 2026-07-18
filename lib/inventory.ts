@@ -24,6 +24,7 @@ export type AbcClass = "A" | "B" | "C";
 export type AnalyzedInventoryItem = RawInventoryItem & {
   demandAvailable: boolean;
   unitCostAvailable: boolean;
+  abcAvailable: boolean;
   averageMonthlyDemand: number;
   demandVariability: number;
   consumptionValue: number;
@@ -134,6 +135,7 @@ export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysi
     });
 
   const items: AnalyzedInventoryItem[] = baseItems.map((item) => {
+    const abcAvailable = item.demandAvailable && item.unitCostAvailable && totalConsumptionValue > 0;
     const averageDailyDemand = item.averageMonthlyDemand / 30;
     const coverageDays = averageDailyDemand > 0 ? item.currentStock / averageDailyDemand : 999;
     const reorderPoint = Math.ceil(averageDailyDemand * item.leadTimeDays + item.safetyStock);
@@ -175,13 +177,14 @@ export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysi
       recommendation = suggestedOrder > 0 ? `Planificar ${suggestedOrder} ud.` : "Revisar próxima compra";
     }
 
-    const statusLabel = status === "critical" ? "Crítico" : status === "attention" ? "Atención" : "Estable";
+    const statusLabel: AnalyzedInventoryItem["statusLabel"] = status === "critical" ? "Crítico" : status === "attention" ? "Atención" : "Estable";
     const coveragePenalty = !item.demandAvailable ? 0 : coverageDays < 30 ? 30 - coverageDays : coverageDays > 90 ? Math.min(30, (coverageDays - 90) / 3) : 0;
     const classBoost = abcBySku.get(item.sku) === "A" ? 12 : abcBySku.get(item.sku) === "B" ? 6 : 0;
     const priorityScore = Math.round((status === "critical" ? 70 : status === "attention" ? 35 : 5) + coveragePenalty + classBoost);
 
     return {
       ...item,
+      abcAvailable,
       abcClass: abcBySku.get(item.sku) ?? "C",
       coverageDays,
       reorderPoint,
@@ -211,7 +214,7 @@ export function analyzeInventory(rawItems: RawInventoryItem[]): InventoryAnalysi
         ? finiteCoverage.reduce((sum, item) => sum + item.coverageDays, 0) / finiteCoverage.length
         : 0,
       immobilizedValue: overstockItems.reduce((sum, item) => sum + item.stockValue, 0),
-      actionTodayCount: items.filter((item) => item.status === "critical" && item.abcClass === "A").length,
+      actionTodayCount: items.filter((item) => item.status === "critical" && item.abcAvailable && item.abcClass === "A").length,
       totalSuggestedOrder: items.reduce((sum, item) => sum + item.suggestedOrder, 0),
       suggestedOrderCost: items.reduce((sum, item) => sum + item.suggestedOrder * item.unitCost, 0),
     },
@@ -381,7 +384,7 @@ export function exportAnalysisCsv(items: AnalyzedInventoryItem[]) {
     item.sku,
     item.product,
     item.category,
-    item.abcClass,
+    item.abcAvailable ? item.abcClass : "No disponible",
     item.currentStock,
     item.demandAvailable ? item.averageMonthlyDemand.toFixed(2) : "No disponible",
     item.demandAvailable ? (item.coverageDays >= 999 ? "Sin consumo" : item.coverageDays.toFixed(1)) : "No disponible",

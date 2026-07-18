@@ -12,10 +12,10 @@ Mostrar brevemente un Excel ficticio.
 
 Mostrar el dashboard inicial.
 
-## 0:40–1:25 — Traductor universal de Excel
+## 0:40–1:25 — Centro universal de documentos
 
 1. Pulsar **Analizar inventario**.
-2. Mostrar un Excel ficticio cuyo título esté antes de los encabezados y cuya ubicación esté dividida en varias columnas.
+2. Señalar que admite XLSX, CSV, TSV, JSON, PDF con texto, DOCX y TXT; usar un Excel ficticio cuyo título esté antes de los encabezados y cuya ubicación esté dividida en varias columnas.
 3. Subir el archivo y señalar la hoja y fila de encabezados detectadas.
 4. Mostrar la correspondencia automática de “Item”, “Quantity”, lote, vencimiento, zona y ubicación compuesta.
 5. Explicar que la correspondencia puede corregirse y se recuerda para ese formato.
@@ -23,7 +23,16 @@ Mostrar el dashboard inicial.
 
 Frase clave: “StockFlow traduce el formato de cada empresa. Solo exige SKU y cantidad, y nunca convierte un dato ausente en un cero inventado.”
 
-## 1:25–1:50 — Dashboard
+## 1:25–1:55 — Auditoría y documentos complementarios
+
+1. Mostrar la puntuación de preparación operativa y los estados completo, parcial y pendiente.
+2. Pulsar **Complementar datos**.
+3. Explicar que otro documento puede añadir demanda, costes, familias o pedidos por SKU sin duplicar cantidades.
+4. Señalar los tres próximos datos que más funcionalidad desbloquean.
+
+Frase clave: “La IA no oculta lo que falta: mide la cobertura y une fuentes distintas con trazabilidad.”
+
+## 1:55–2:15 — Dashboard
 
 Explicar brevemente:
 
@@ -35,7 +44,7 @@ Explicar brevemente:
 
 Si el archivo de demostración omite costes o demanda, señalar los indicadores “Pendiente” y explicar que los cálculos dependientes quedan pausados.
 
-## 1:50–3:15 — Mapa del almacén
+## 2:15–3:25 — Mapa del almacén
 
 1. Abrir **Mapa de almacén**.
 2. Señalar ubicaciones totales, ocupadas, vacías, APQ y picking próximo.
@@ -47,7 +56,7 @@ Si el archivo de demostración omite costes o demanda, señalar los indicadores 
 
 Frase clave: “Si el Excel solo confirma ubicaciones ocupadas, StockFlow no inventa huecos. Con el maestro completo, la altura uno es suelo y las superiores son reserva; APQ permanece segregado.”
 
-## 3:15–4:00 — Plan de movimientos explicable
+## 3:25–4:05 — Plan de movimientos explicable
 
 1. Mostrar una acción **Subir a altura**.
 2. Explicar que queda un mes de demanda en suelo después del picking pendiente.
@@ -57,29 +66,29 @@ Frase clave: “Si el Excel solo confirma ubicaciones ocupadas, StockFlow no inv
 
 Frase clave: “Solo fusionamos si coinciden SKU, lote, fabricación y vencimiento; si no, buscamos un hueco vacío compatible.”
 
-## 4:00–4:25 — Conteos cíclicos
+## 4:05–4:25 — Conteos cíclicos
 
 1. Abrir **Conteos cíclicos**.
-2. Mostrar uno o dos conteos anuales.
+2. Mostrar uno o dos conteos anuales y el conteo de gracia opcional.
 3. Pulsar **Cargar ejemplo**.
 4. Enseñar brevemente avance, diferencias, tolerancia y exactitud.
 
-## 4:25–4:40 — Simulador y exportación
+## 4:25–4:42 — Simulador y exportación
 
 1. Abrir **Simulador** y aumentar la demanda.
 2. Mostrar el cambio en riesgo.
-3. Volver al mapa y señalar que puede exportarse completo, incluidas las ubicaciones vacías.
+3. Descargar el informe Excel integral y nombrar sus seis hojas.
 
-## 4:40–4:53 — Vibe Coding
+## 4:42–4:54 — Vibe Coding
 
 Mostrar brevemente:
 
 - Historial de prompts.
 - Evolución visual.
-- Dieciocho pruebas automatizadas.
+- Veintinueve pruebas lógicas, HTML renderizado, TypeScript, lint y compilación.
 - Aplicación desplegada.
 
-## 4:53–5:00 — Cierre
+## 4:54–5:00 — Cierre
 
 “StockFlow IA convierte los datos de inventario en decisiones físicas claras para reducir pérdidas, aprovechar el espacio y trabajar con menos incertidumbre.”
 

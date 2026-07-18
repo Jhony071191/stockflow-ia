@@ -82,6 +82,14 @@ export type WarehouseDataset = {
     mappedFields: number;
     profileSignature: string;
   };
+  dataSources?: Array<{
+    name: string;
+    format: string;
+    mode: "replace" | "enrich";
+    rows: number;
+    mappedFields: number;
+    importedAt: string;
+  }>;
 };
 
 export type WarehouseLocation = {
@@ -369,7 +377,11 @@ const pickTarget = (
   if (compatible) return { location: compatible, merge: true };
 
   const empty = candidates
-    .filter((location) => location.contents.length === 0)
+    .filter((location) => location.contents.length === 0 && (
+      location.family === source.family
+      || location.family === "Sin asignar"
+      || (source.hazardous && location.zone === "APQ")
+    ))
     .sort((left, right) => {
       const leftFamily = left.family === source.family || left.family === "Sin asignar" ? 1 : 0;
       const rightFamily = right.family === source.family || right.family === "Sin asignar" ? 1 : 0;
@@ -722,8 +734,8 @@ export function parseWarehouseRows(rawRows: unknown[][]): WarehouseParseResult {
       salesM2,
       salesM3,
       aisle,
-      bay,
-      level,
+      bay: bay ?? 1,
+      level: level ?? 1,
       batch: read(row, indexes.batch),
       manufacturingDate: cleanDate(read(row, indexes.manufacturing)),
       expiryDate: cleanDate(read(row, indexes.expiry)),
@@ -822,8 +834,8 @@ export function parseWarehouseRows(rawRows: unknown[][]): WarehouseParseResult {
       ...row,
       id: `import-${row.rowNumber}-${index}`,
       aisle,
-      bay,
-      level,
+      bay: bay ?? 1,
+      level: level ?? 1,
     };
   });
 
