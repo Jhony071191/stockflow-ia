@@ -39,7 +39,7 @@ Esta evaluación es una autoauditoría y no representa una nota oficial de Big S
 
 | Criterio | Fortaleza actual | Debilidad detectada y corrección |
 |---|---|---|
-| Complejidad y funcionalidad | Importación, análisis, mapa, movimientos, simulador, conteos y exportaciones integrados | Se completó la lectura multiformato, el enriquecimiento entre documentos, el conteo de gracia y el informe de seis hojas |
+| Complejidad y funcionalidad | Importación, análisis, mapa, movimientos, simulador, conteos y exportaciones integrados | Se completó la lectura multiformato, el enriquecimiento entre documentos, el conteo de gracia, el avance por ubicación y el informe de siete hojas |
 | Innovación y originalidad | Traducción empresarial y recomendaciones físicas explicables | Se hizo visible la inteligencia mediante auditoría 0–100, cobertura por capacidad y prioridades de datos |
 | Calidad del Vibe Coding | Evolución trazable mediante prompts, pruebas e iteraciones | Se amplió el historial y se documentó la revisión completa solicitada por el participante |
 | Experiencia de usuario | Identidad premium consistente, navegación clara y responsive | Se creó un único centro de documentos con dos modos, formatos visibles, avisos de OCR y mapeo agrupado |
@@ -62,7 +62,7 @@ La principal fortaleza competitiva es que StockFlow IA no se limita a visualizar
 - Presenta un asistente de correspondencia editable antes de incorporar los datos.
 - Recuerda localmente la correspondencia de cada estructura de encabezados.
 - En modo **Nuevo análisis** solo exige SKU y cantidad; cualquier otro campo ausente se declara como no disponible.
-- En modo **Complementar datos** exige SKU y al menos un campo adicional, y une la nueva información por SKU sin duplicar el inventario.
+- En modo **Complementar datos** admite SKU con un campo adicional o una ubicación con campos de conteo; une la información sin duplicar el inventario.
 - Los campos de ubicación, cantidad, lote y picking solo se actualizan cuando la ubicación puede identificarse de manera inequívoca.
 - Permite incorporar demanda, costes, familias, lotes, fechas, picking y capacidad desde documentos independientes.
 - Nunca interpreta un indicador de picking 0/1 como unidades comprometidas.
@@ -114,7 +114,7 @@ La principal fortaleza competitiva es que StockFlow IA no se limita a visualizar
 
 - Descarga CSV del análisis completo.
 - Incluye ABC, cobertura, punto de pedido, pedido sugerido, estado y recomendación.
-- Informe Excel integral con seis hojas: resumen ejecutivo, inventario, ubicaciones, movimientos, calidad de datos y plan de conteos.
+- Informe Excel integral con siete hojas: resumen ejecutivo, inventario, ubicaciones, movimientos, calidad de datos, plan de conteos y avance de conteo por ubicación.
 - Los totales económicos parciales se identifican como valor conocido y no como valor completo.
 
 ### 4.7 Conteos cíclicos por cliente
@@ -130,6 +130,12 @@ La principal fortaleza competitiva es que StockFlow IA no se limita a visualizar
 - Indicadores de progreso, exactitud, coincidencias y ajuste valorado.
 - Cierre de campaña únicamente cuando todas las referencias han sido contadas.
 - Exportación de un acta CSV independiente por campaña.
+- Importación de campaña, estado, conteo físico y fecha de conteo por ubicación, incluso cuando el documento complementario no incluye SKU.
+- Porcentaje calculado sobre ubicaciones elegibles, con ubicaciones excluidas separadas del denominador.
+- Lista de ubicaciones pendientes con búsqueda, filtro de zona y prioridad APQ, picking, suelo y reserva.
+- Fecha objetivo situada un mes calendario antes de la fecha final del cliente.
+- Meta diaria redondeada hacia arriba según ubicaciones pendientes y días operativos restantes configurables a 5, 6 o 7 días por semana.
+- Exportación CSV de ubicaciones pendientes y hoja específica en el informe integral.
 
 ### 4.8 Mapa y slotting del almacén
 
@@ -157,14 +163,14 @@ La solución utiliza una arquitectura sin servidor para el tratamiento de los da
 3. **Extractor documental:** convierte hojas, tablas y registros estructurados en matrices tabulares comunes.
 4. **Detector:** selección de hoja/página/tabla, fila de encabezados, columnas y muestras.
 5. **Traductor empresarial:** aliases, inferencia por valores, ubicación compuesta, perfil editable y matriz de capacidades.
-6. **Integrador:** crea un inventario nuevo o complementa por SKU datos procedentes de fuentes distintas, con protección para campos dependientes de ubicación.
+6. **Integrador:** crea un inventario nuevo o complementa por SKU información comercial y por ubicación el avance de conteo, con protección para campos dependientes de ubicación.
 7. **Validación:** normalización de números, fechas, coordenadas y filas sin completar datos ausentes.
 8. **Auditoría de datos:** calcula cobertura por capacidad y preparación operativa ponderada.
 9. **Motor analítico:** funciones TypeScript puras y deterministas.
 10. **Motor de almacén:** preservación de ubicaciones de origen o generación estructurada, segregación APQ y reglas de movimiento.
-11. **Módulo de conteos:** planificación, captura física y conciliación por campaña.
+11. **Módulo de conteos:** planificación contractual, captura física por SKU, progreso importado por ubicación, priorización y cálculo del ritmo diario.
 12. **Presentación:** dashboard, mapa o tabla de origen, filtros, explicación y simulador.
-13. **Salida:** informe Excel de seis hojas, análisis, mapa de ubicaciones y actas CSV generados en el navegador.
+13. **Salida:** informe Excel de siete hojas, análisis, mapa, ubicaciones pendientes y actas CSV generados en el navegador.
 
 El inventario se mantiene únicamente en memoria durante la sesión. No se utiliza base de datos ni se transmite el archivo a un servicio externo. Las bibliotecas de Excel, PDF y Word se cargan en el navegador únicamente cuando son necesarias.
 
@@ -189,6 +195,9 @@ Cada referencia contiene:
 | APQ | Indicador de mercancía peligrosa |
 | Picking pendiente | Unidades comprometidas en pedidos próximos |
 | Capacidad de ubicación | Límite utilizado para proponer destinos |
+| Campaña y estado de conteo | Identifican el ciclo y si una ubicación está contada, pendiente o excluida |
+| Conteo físico y fecha | Evidencia registrada para una ubicación contada |
+| Fecha final y días operativos | Parámetros para la fecha objetivo anticipada y la meta diaria |
 
 La matriz de capacidades acompaña a cada importación e indica si están realmente disponibles producto, familia, coste, demanda, ubicación, maestro completo, APQ, fabricación, vencimiento y picking pendiente. La interfaz utiliza esa matriz para decidir qué métricas y recomendaciones puede calcular con rigor.
 
@@ -232,6 +241,17 @@ La puntuación combina:
 - La mercancía APQ solo puede recibir destinos APQ; no se mezcla con ubicaciones generales.
 - Para reposiciones se priorizan las existencias con vencimiento más próximo.
 
+### Avance anticipado de conteos
+
+`Fecha objetivo = fecha final del cliente − 1 mes calendario`
+
+`Meta diaria = techo(ubicaciones pendientes ÷ días operativos restantes)`
+
+- El porcentaje usa únicamente ubicaciones elegibles; las excluidas se informan aparte.
+- Los días operativos se calculan de forma inclusiva con semanas de 5, 6 o 7 días.
+- Si falta la fecha final, la app muestra el dato pendiente y no inventa una meta diaria.
+- Si la fecha objetivo ya venció, el panel lo advierte y presenta la carga pendiente como urgente.
+
 ## 8. Casos de uso
 
 ### Responsable de un pequeño almacén
@@ -260,7 +280,7 @@ Identifica las ubicaciones APQ y evita que una recomendación mezcle mercancía 
 
 ### Empresa de servicios de inventario
 
-Configura un contrato de uno o dos conteos anuales, registra el stock físico y entrega al cliente un acta de diferencias.
+Configura un contrato de uno o dos conteos anuales, importa el avance real por ubicación, conoce la carga diaria necesaria y entrega al cliente un acta de diferencias.
 
 ## 9. Proceso iterativo con IA
 
@@ -293,6 +313,12 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 27. Corrección preventiva de ABC ficticio, totales económicos parciales y destinos de familias incompatibles.
 28. Incorporación del conteo de gracia y del informe Excel integral de seis hojas.
 29. Nuevas pruebas de inteligencia documental, enriquecimiento, valores inválidos, cobertura parcial, compatibilidad familiar y CSV entrecomillado.
+30. Creación del dataset retail de demostración con 14 familias, 420 ubicaciones y escenarios logísticos verificables.
+31. Ampliación del traductor universal con campaña, estado, conteo físico, fecha, compromiso final y días operativos por ubicación.
+32. Creación del panel de avance importado con porcentaje, pendientes, prioridad operativa, objetivo un mes antes y meta diaria.
+33. Incorporación de conteos sin SKU mediante unión inequívoca por ubicación.
+34. Ampliación del informe integral a siete hojas y de la plantilla Excel a los campos de conteo.
+35. Validación del Excel del video mediante el mismo lector de archivos y el mismo motor de traducción utilizados por la aplicación.
 
 ## 10. Challenges y soluciones
 
@@ -319,6 +345,12 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 **Challenge:** el inventario físico, la demanda, los costes y los pedidos próximos suelen exportarse desde sistemas o documentos diferentes.
 
 **Solución:** modo de enriquecimiento por SKU. Los datos comerciales pueden aplicarse a todas las posiciones del SKU, mientras cantidad, lote y picking exigen una ubicación inequívoca. Los SKU no encontrados y las filas ambiguas se informan y se omiten.
+
+### Convertir el avance contractual en una carga diaria realista
+
+**Challenge:** el número de SKU no representa el trabajo físico cuando un almacén contiene cientos de ubicaciones, incluidas posiciones vacías que también deben verificarse.
+
+**Solución:** el conteo operativo se calcula por ubicación. StockFlow importa estados contados, pendientes o excluidos, resta un mes calendario a la fecha final, cuenta únicamente los días operativos configurados y redondea hacia arriba las ubicaciones necesarias por día. APQ, picking y suelo encabezan la lista de pendientes.
 
 ### Comunicar calidad sin una falsa sensación de completitud
 
@@ -410,8 +442,16 @@ Configura un contrato de uno o dos conteos anuales, registra el stock físico y 
 - Conteo de gracia opcional independiente de uno o dos conteos contratados.
 - Bloqueo de un destino vacío perteneciente a una familia incompatible.
 - Conservación de campos CSV entrecomillados que contienen comas.
+- Resta exacta de un mes calendario, incluido el último día de febrero.
+- Cómputo de días operativos para semanas de 5, 6 y 7 días.
+- Porcentaje, pendientes, fecha objetivo y ritmo diario por ubicación.
+- Prioridad APQ dentro de las ubicaciones pendientes.
+- Ausencia de una meta ficticia cuando el Excel no incluye fecha final.
+- Importación del avance dentro del inventario principal.
+- Enriquecimiento de conteos únicamente por ubicación, sin exigir SKU.
+- Lectura integral del Excel de demostración: 420 ubicaciones, 300 contadas, 120 pendientes, 71,4 % y 4 ubicaciones al día.
 
-Resultado actual: 29 pruebas lógicas superadas, prueba del HTML renderizado superada, TypeScript sin errores, ESLint sin errores y compilación desplegable correcta.
+Resultado actual: 35 pruebas lógicas superadas, prueba del HTML renderizado superada, TypeScript sin errores, ESLint sin errores y compilación desplegable correcta.
 
 ## 12. Privacidad, seguridad y ética
 

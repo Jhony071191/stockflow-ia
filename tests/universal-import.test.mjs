@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildWarehouseLocations } from "../lib/warehouse.ts";
 import {
   analyzeUniversalWorkbook,
+  enrichWarehouseDataset,
   reanalyzeUniversalDraft,
   translateUniversalDraft,
 } from "../lib/universal-import.ts";
@@ -117,4 +118,45 @@ test("permite corregir manualmente la hoja y la fila de encabezados", () => {
   assert.deepEqual(parsed.errors, []);
   assert.equal(parsed.items[0].sku, "MANUAL-1");
   assert.equal(parsed.items[0].currentStock, 11);
+});
+
+test("traduce el avance de conteo incluido en un Excel de inventario", () => {
+  const rows = [
+    ["SKU", "Producto", "Cantidad", "Pasillo", "Módulo", "Altura", "Campaña conteo", "Estado conteo", "Conteo físico", "Fecha conteo", "Fecha límite conteo", "Días conteo semana"],
+    ["RET-1", "Camiseta", 20, 1, 1, 1, "Segundo conteo 2026", "CONTADO", 19, "2026-07-17", "2026-09-30", 5],
+    ["RET-2", "Pantalón", 12, 1, 2, 2, "Segundo conteo 2026", "PENDIENTE", "", "", "2026-09-30", 5],
+  ];
+  const draft = analyzeUniversalWorkbook([{ name: "Inventario", rows }]);
+  const parsed = translateUniversalDraft(draft);
+
+  assert.deepEqual(parsed.errors, []);
+  assert.ok(parsed.dataset?.cycleCount);
+  assert.equal(parsed.dataset.cycleCount.campaign, "Segundo conteo 2026");
+  assert.equal(parsed.dataset.cycleCount.deadline, "2026-09-30");
+  assert.equal(parsed.dataset.cycleCount.workdaysPerWeek, 5);
+  assert.equal(parsed.dataset.cycleCount.records.length, 2);
+  assert.equal(parsed.dataset.cycleCount.records.filter((record) => record.status === "counted").length, 1);
+  assert.equal(parsed.dataset.cycleCount.records.filter((record) => record.status === "pending").length, 1);
+});
+
+test("complementa el conteo mediante ubicación aunque el archivo no tenga SKU", () => {
+  const baseRows = [
+    ["SKU", "Producto", "Cantidad", "Pasillo", "Módulo", "Altura"],
+    ["RET-1", "Camiseta", 20, 1, 1, 1],
+  ];
+  const base = translateUniversalDraft(analyzeUniversalWorkbook([{ name: "Inventario", rows: baseRows }]));
+  assert.ok(base.dataset);
+  const countRows = [
+    ["Pasillo", "Módulo", "Altura", "Campaña conteo", "Estado conteo", "Conteo físico", "Fecha conteo", "Fecha final conteo", "Días operativos semana"],
+    [1, 1, 1, "Conteo de ubicación", "CONTADO", 20, "2026-07-19", "2026-09-30", 5],
+  ];
+  const countDraft = analyzeUniversalWorkbook([{ name: "Avance", rows: countRows }]);
+  const enriched = enrichWarehouseDataset(base.dataset, countDraft);
+
+  assert.deepEqual(enriched.errors, []);
+  assert.ok(enriched.dataset?.cycleCount);
+  assert.equal(enriched.updatedSkuCount, 0);
+  assert.equal(enriched.updatedLocationCount, 1);
+  assert.equal(enriched.dataset.cycleCount.records[0].status, "counted");
+  assert.equal(enriched.dataset.cycleCount.records[0].physicalCount, 20);
 });

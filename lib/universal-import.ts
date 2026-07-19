@@ -1,6 +1,10 @@
 import {
+  buildWarehouseLocations,
+  formatLocationCode,
   inventoryFromWarehouse,
   type WarehouseCapabilities,
+  type WarehouseCycleCountData,
+  type WarehouseCycleCountRecord,
   type WarehouseDataset,
   type WarehouseLocationOverride,
   type WarehouseParseResult,
@@ -36,7 +40,13 @@ export type UniversalField =
   | "totalLevels"
   | "grade"
   | "holdCode"
-  | "pickingIndicator";
+  | "pickingIndicator"
+  | "countCampaign"
+  | "countStatus"
+  | "physicalCount"
+  | "countedAt"
+  | "countDeadline"
+  | "countWorkdays";
 
 export type UniversalMapping = Record<UniversalField, number | null> & {
   locationStart: number | null;
@@ -76,6 +86,7 @@ export type UniversalEnrichmentResult = {
   errors: string[];
   warnings: string[];
   updatedSkuCount: number;
+  updatedLocationCount: number;
   updatedRowCount: number;
   appliedFields: UniversalField[];
 };
@@ -109,13 +120,20 @@ export const UNIVERSAL_FIELD_LABELS: Record<UniversalField, string> = {
   grade: "Grado / estado de calidad",
   holdCode: "Código de bloqueo",
   pickingIndicator: "Indicador picking (sí/no)",
+  countCampaign: "Campaña de conteo",
+  countStatus: "Estado del conteo por ubicación",
+  physicalCount: "Cantidad física contada",
+  countedAt: "Fecha del conteo realizado",
+  countDeadline: "Fecha final de la campaña",
+  countWorkdays: "Días operativos por semana",
 };
 
 export const UNIVERSAL_EDITABLE_FIELDS: UniversalField[] = [
   "sku", "product", "quantity", "family", "unitCost", "demand", "salesM1", "salesM2", "salesM3",
   "leadTime", "safetyStock", "location", "zone", "aisle", "bay", "level", "batch", "manufacturing",
   "expiry", "hazardous", "pending", "capacity", "totalAisles", "baysPerAisle", "totalLevels", "grade",
-  "holdCode", "pickingIndicator",
+  "holdCode", "pickingIndicator", "countCampaign", "countStatus", "physicalCount", "countedAt",
+  "countDeadline", "countWorkdays",
 ];
 
 const FIELD_ALIASES: Record<UniversalField, string[]> = {
@@ -147,6 +165,12 @@ const FIELD_ALIASES: Record<UniversalField, string[]> = {
   grade: ["grade", "quality_grade", "stock_grade", "grado", "calidad", "quality_status"],
   holdCode: ["hold_code", "block_code", "codigo_bloqueo", "blocked", "quarantine_code", "status_code"],
   pickingIndicator: ["prp_pick", "prep_pick", "pick_flag", "picking_flag", "is_picking", "picking_indicator"],
+  countCampaign: ["campana_conteo", "campana_de_conteo", "count_campaign", "cycle_count_campaign", "ciclo_conteo"],
+  countStatus: ["estado_conteo", "estatus_conteo", "conteo_estado", "count_status", "cycle_count_status", "estado_inventario_fisico"],
+  physicalCount: ["conteo_fisico", "cantidad_contada", "physical_count", "counted_quantity", "counted_qty", "stock_fisico"],
+  countedAt: ["fecha_conteo", "fecha_de_conteo", "count_date", "counted_at", "cycle_count_date"],
+  countDeadline: ["fecha_limite_conteo", "fecha_final_conteo", "fin_campana_conteo", "count_deadline", "cycle_count_deadline"],
+  countWorkdays: ["dias_conteo_semana", "dias_operativos_semana", "workdays_per_week", "count_workdays_per_week"],
 };
 
 const TERMINAL_LOCATION_HEADERS = new Set([
@@ -203,6 +227,12 @@ const emptyMapping = (): UniversalMapping => ({
   grade: null,
   holdCode: null,
   pickingIndicator: null,
+  countCampaign: null,
+  countStatus: null,
+  physicalCount: null,
+  countedAt: null,
+  countDeadline: null,
+  countWorkdays: null,
   locationStart: null,
   locationEnd: null,
 });
@@ -462,6 +492,120 @@ const deriveLevel = (explicit: unknown, sourceZone: WarehouseZone | undefined, l
 
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
 
+const CYCLE_COUNT_FIELDS: UniversalField[] = [
+  "countCampaign", "countStatus", "physicalCount", "countedAt", "countDeadline", "countWorkdays",
+];
+
+const parseCycleCountStatus = (value: unknown, physicalCount: unknown, countedAt: unknown) => {
+  const normalized = normalizeUniversalHeader(value);
+  if (["excluido", "excluida", "excluded", "fuera_alcance", "no_aplica", "n_a"].includes(normalized)) return "excluded" as const;
+  if (["contado", "contada", "completado", "completada", "cerrado", "closed", "counted", "done", "finalizado"].includes(normalized)) return "counted" as const;
+  if (["pendiente", "pending", "abierto", "open", "por_contar", "no_contado", "sin_contar"].includes(normalized)) return "pending" as const;
+  if (hasCellValue(physicalCount) || hasCellValue(countedAt)) return "counted" as const;
+  return "pending" as const;
+};
+
+const mergeCountStatus = (
+  left: WarehouseCycleCountRecord["status"],
+  right: WarehouseCycleCountRecord["status"],
+) => left === "pending" || right === "pending"
+  ? "pending"
+  : left === "counted" || right === "counted"
+    ? "counted"
+    : "excluded";
+
+const distinctText = (...groups: string[][]) => [...new Set(groups.flat().filter(Boolean))];
+
+const extractCycleCountData = (
+  draft: UniversalImportDraft,
+  mapping: UniversalMapping,
+  dataset: WarehouseDataset,
+): WarehouseCycleCountData | null => {
+  if (!CYCLE_COUNT_FIELDS.some((field) => mapping[field] !== null)) return null;
+  const hasExplicitCoordinates = mapping.aisle !== null && mapping.bay !== null;
+  if (mapping.locationStart === null && mapping.location === null && !hasExplicitCoordinates) return null;
+
+  const read = (row: unknown[], field: UniversalField) => mapping[field] === null ? "" : row[mapping[field] as number];
+  const rows = draft.rows.slice(draft.headerRowIndex + 1).filter((row) => row.some((value) => hasCellValue(value)));
+  const locations = buildWarehouseLocations(dataset);
+  const records = new Map<string, WarehouseCycleCountRecord>();
+  let campaign = "";
+  let deadline = "";
+  let workdaysPerWeek: 5 | 6 | 7 = dataset.cycleCount?.workdaysPerWeek ?? 5;
+
+  rows.forEach((row) => {
+    const locationParts = mapping.locationStart !== null
+      ? row.slice(mapping.locationStart, (mapping.locationEnd ?? mapping.locationStart) + 1).map(cellText).filter(Boolean)
+      : mapping.location !== null ? [cellText(read(row, "location"))].filter(Boolean) : [];
+    const sourceLocationCode = locationParts.join("-");
+    const explicitAisle = parseNumber(read(row, "aisle"), 0);
+    const explicitBay = parseNumber(read(row, "bay"), 0);
+    const sourceZone = translateZone(read(row, "zone")) || translateZone(locationParts[0]);
+    const explicitLevel = deriveLevel(read(row, "level"), sourceZone, locationParts);
+    const locationNumbers = sourceLocationCode.match(/\d+/g)?.map(Number) ?? [];
+    const resolvedAisle = explicitAisle || locationNumbers[0] || 0;
+    const resolvedBay = explicitBay || locationNumbers[1] || 0;
+    const resolvedLevel = hasCellValue(read(row, "level")) ? explicitLevel : locationNumbers[2] || explicitLevel;
+    const location = locations.find((candidate) => sourceLocationCode && (
+      normalizeUniversalHeader(candidate.sourceCode) === normalizeUniversalHeader(sourceLocationCode)
+      || normalizeUniversalHeader(candidate.code) === normalizeUniversalHeader(sourceLocationCode)
+    )) ?? locations.find((candidate) => resolvedAisle && resolvedBay
+      && candidate.aisle === Math.round(resolvedAisle)
+      && candidate.bay === Math.round(resolvedBay)
+      && candidate.level === Math.round(resolvedLevel));
+    if (!location) return;
+
+    const rawPhysicalCount = read(row, "physicalCount");
+    const rawCountedAt = read(row, "countedAt");
+    const parsedPhysicalCount = parseNumber(rawPhysicalCount, Number.NaN);
+    const status = parseCycleCountStatus(read(row, "countStatus"), rawPhysicalCount, rawCountedAt);
+    const sku = cellText(read(row, "sku"));
+    const product = cellText(read(row, "product"));
+    const key = `${location.aisle}-${location.bay}-${location.level}`;
+    const next: WarehouseCycleCountRecord = {
+      locationCode: location.code || formatLocationCode(location.aisle, location.bay, location.level),
+      sourceLocationCode: sourceLocationCode || location.sourceCode,
+      aisle: location.aisle,
+      bay: location.bay,
+      level: location.level,
+      zone: location.zone,
+      family: location.family,
+      status,
+      physicalCount: Number.isNaN(parsedPhysicalCount) ? null : parsedPhysicalCount,
+      countedAt: cleanDate(rawCountedAt),
+      systemQuantity: location.quantity,
+      pendingPicking: location.pendingPicking,
+      skus: sku ? [sku] : location.contents.map((stock) => stock.sku),
+      products: product ? [product] : location.contents.map((stock) => stock.product),
+    };
+    const current = records.get(key);
+    records.set(key, current ? {
+      ...current,
+      status: mergeCountStatus(current.status, next.status),
+      physicalCount: current.physicalCount === null
+        ? next.physicalCount
+        : next.physicalCount === null ? current.physicalCount : current.physicalCount + next.physicalCount,
+      countedAt: current.countedAt || next.countedAt,
+      skus: distinctText(current.skus, next.skus),
+      products: distinctText(current.products, next.products),
+    } : next);
+
+    if (!campaign && hasCellValue(read(row, "countCampaign"))) campaign = cellText(read(row, "countCampaign"));
+    if (!deadline && hasCellValue(read(row, "countDeadline"))) deadline = cleanDate(read(row, "countDeadline"));
+    if (hasCellValue(read(row, "countWorkdays"))) {
+      workdaysPerWeek = clamp(Math.round(parseNumber(read(row, "countWorkdays"), 5)), 5, 7) as 5 | 6 | 7;
+    }
+  });
+
+  if (!records.size) return null;
+  return {
+    campaign: campaign || dataset.cycleCount?.campaign || "Conteo importado",
+    deadline: deadline || dataset.cycleCount?.deadline || "",
+    workdaysPerWeek,
+    records: [...records.values()].sort((left, right) => left.aisle - right.aisle || left.bay - right.bay || left.level - right.level),
+  };
+};
+
 export function translateUniversalDraft(draft: UniversalImportDraft, mapping: UniversalMapping = draft.mapping): WarehouseParseResult {
   if (mapping.sku === null || mapping.quantity === null) {
     return { dataset: null, items: [], errors: ["Asigna al menos las columnas SKU y cantidad."], warnings: draft.warnings };
@@ -652,13 +796,17 @@ export function translateUniversalDraft(draft: UniversalImportDraft, mapping: Un
       profileSignature: draft.profileSignature,
     },
   };
+  dataset.cycleCount = extractCycleCountData(draft, mapping, dataset) ?? undefined;
+  if (dataset.cycleCount && !dataset.cycleCount.deadline) {
+    dataset.warnings = [...new Set([...dataset.warnings, "Conteo por ubicación importado sin fecha final: el ritmo diario quedará pendiente."])].slice(0, 16);
+  }
   return { dataset, items: inventoryFromWarehouse(dataset), errors: [], warnings: dataset.warnings };
 }
 
 const ENRICHMENT_VALUE_FIELDS: UniversalField[] = [
   "product", "family", "quantity", "unitCost", "leadTime", "safetyStock", "demand", "salesM1", "salesM2",
   "salesM3", "location", "zone", "aisle", "bay", "level", "batch", "manufacturing", "expiry", "hazardous",
-  "pending", "capacity", "totalAisles", "baysPerAisle", "totalLevels", "grade", "holdCode",
+  "pending", "capacity", "totalAisles", "baysPerAisle", "totalLevels", "grade", "holdCode", ...CYCLE_COUNT_FIELDS,
 ];
 
 export function enrichWarehouseDataset(
@@ -667,12 +815,14 @@ export function enrichWarehouseDataset(
   mapping: UniversalMapping = draft.mapping,
   source: { name?: string; format?: string } = {},
 ): UniversalEnrichmentResult {
-  if (mapping.sku === null) {
-    return { dataset: null, items: [], errors: ["Para complementar datos debes asignar la columna SKU."], warnings: [], updatedSkuCount: 0, updatedRowCount: 0, appliedFields: [] };
+  const hasCycleCountMapping = CYCLE_COUNT_FIELDS.some((field) => mapping[field] !== null)
+    && (mapping.locationStart !== null || mapping.location !== null || (mapping.aisle !== null && mapping.bay !== null));
+  if (mapping.sku === null && !hasCycleCountMapping) {
+    return { dataset: null, items: [], errors: ["Para complementar datos debes asignar el SKU o una ubicación con campos de conteo."], warnings: [], updatedSkuCount: 0, updatedLocationCount: 0, updatedRowCount: 0, appliedFields: [] };
   }
   const mappedValueFields = ENRICHMENT_VALUE_FIELDS.filter((field) => mapping[field] !== null);
   if (!mappedValueFields.length && mapping.locationStart === null) {
-    return { dataset: null, items: [], errors: ["Asigna al menos un dato adicional al SKU para complementar el inventario."], warnings: [], updatedSkuCount: 0, updatedRowCount: 0, appliedFields: [] };
+    return { dataset: null, items: [], errors: ["Asigna al menos un dato adicional al SKU o al conteo por ubicación."], warnings: [], updatedSkuCount: 0, updatedLocationCount: 0, updatedRowCount: 0, appliedFields: [] };
   }
 
   const dataset: WarehouseDataset = {
@@ -684,6 +834,10 @@ export function enrichWarehouseDataset(
     warnings: [...baseDataset.warnings],
     capabilities: baseDataset.capabilities ? { ...baseDataset.capabilities } : undefined,
     dataSources: [...(baseDataset.dataSources ?? [])],
+    cycleCount: baseDataset.cycleCount ? {
+      ...baseDataset.cycleCount,
+      records: baseDataset.cycleCount.records.map((record) => ({ ...record, skus: [...record.skus], products: [...record.products] })),
+    } : undefined,
   };
   const rows = draft.rows.slice(draft.headerRowIndex + 1).filter((row) => row.some((value) => hasCellValue(value)));
   const read = (row: unknown[], field: UniversalField) => mapping[field] === null ? "" : row[mapping[field] as number];
@@ -881,16 +1035,37 @@ export function enrichWarehouseDataset(
     }
   });
 
+  const importedCycleCount = extractCycleCountData(draft, mapping, dataset);
+  let updatedLocationCount = 0;
+  if (importedCycleCount) {
+    const recordsByLocation = new Map(
+      (dataset.cycleCount?.records ?? []).map((record) => [`${record.aisle}-${record.bay}-${record.level}`, record]),
+    );
+    importedCycleCount.records.forEach((record) => {
+      recordsByLocation.set(`${record.aisle}-${record.bay}-${record.level}`, record);
+    });
+    dataset.cycleCount = {
+      campaign: importedCycleCount.campaign || dataset.cycleCount?.campaign || "Conteo importado",
+      deadline: importedCycleCount.deadline || dataset.cycleCount?.deadline || "",
+      workdaysPerWeek: importedCycleCount.workdaysPerWeek || dataset.cycleCount?.workdaysPerWeek || 5,
+      records: [...recordsByLocation.values()].sort((left, right) => left.aisle - right.aisle || left.bay - right.bay || left.level - right.level),
+    };
+    CYCLE_COUNT_FIELDS.filter((field) => mapping[field] !== null).forEach((field) => appliedFields.add(field));
+    updatedLocationCount = importedCycleCount.records.length;
+    if (!updatedRowCount) updatedRowCount = updatedLocationCount;
+  }
+
   if (!updatedRowCount) {
     const reason = unmatchedSkus.size
       ? `No encontramos los SKU del documento en el inventario actual. Ejemplos: ${[...unmatchedSkus].slice(0, 4).join(", ")}.`
       : "El documento no contenía valores aplicables al inventario actual.";
-    return { dataset: null, items: [], errors: [reason], warnings: [], updatedSkuCount: 0, updatedRowCount: 0, appliedFields: [] };
+    return { dataset: null, items: [], errors: [reason], warnings: [], updatedSkuCount: 0, updatedLocationCount: 0, updatedRowCount: 0, appliedFields: [] };
   }
   const fields = [...appliedFields];
   const warnings: string[] = [];
   if (unmatchedSkus.size) warnings.push(`${unmatchedSkus.size} SKU del documento no existen en el inventario actual y se omitieron.`);
   if (ambiguousRows.length) warnings.push(`${ambiguousRows.length} filas tenían datos de lote, cantidad o picking sin una ubicación inequívoca; esos campos no se aplicaron.`);
+  if (dataset.cycleCount && !dataset.cycleCount.deadline) warnings.push("Se actualizó el avance de conteo, pero falta la fecha final para calcular el objetivo diario.");
   const capabilities = dataset.capabilities ?? {
     product: true,
     family: true,
@@ -928,6 +1103,7 @@ export function enrichWarehouseDataset(
     errors: [],
     warnings,
     updatedSkuCount: updatedSkus.size,
+    updatedLocationCount,
     updatedRowCount,
     appliedFields: fields,
   };

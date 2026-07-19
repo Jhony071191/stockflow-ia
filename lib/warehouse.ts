@@ -67,6 +67,32 @@ export type WarehouseLocationOverride = {
   zone?: WarehouseZone;
 };
 
+export type WarehouseCycleCountStatus = "counted" | "pending" | "excluded";
+
+export type WarehouseCycleCountRecord = {
+  locationCode: string;
+  sourceLocationCode?: string;
+  aisle: number;
+  bay: number;
+  level: number;
+  zone: WarehouseZone;
+  family: string;
+  status: WarehouseCycleCountStatus;
+  physicalCount: number | null;
+  countedAt: string;
+  systemQuantity: number;
+  pendingPicking: number;
+  skus: string[];
+  products: string[];
+};
+
+export type WarehouseCycleCountData = {
+  campaign: string;
+  deadline: string;
+  workdaysPerWeek: 5 | 6 | 7;
+  records: WarehouseCycleCountRecord[];
+};
+
 export type WarehouseDataset = {
   config: WarehouseConfig;
   stocks: WarehouseStock[];
@@ -90,6 +116,7 @@ export type WarehouseDataset = {
     mappedFields: number;
     importedAt: string;
   }>;
+  cycleCount?: WarehouseCycleCountData;
 };
 
 export type WarehouseLocation = {
@@ -868,14 +895,15 @@ export function createWarehouseTemplateRows() {
     "sku", "producto", "familia", "cantidad_ubicacion", "coste_unitario", "lead_time_dias", "stock_seguridad",
     "ventas_mes_1", "ventas_mes_2", "ventas_mes_3", "pasillo", "modulo", "altura", "lote",
     "fecha_fabricacion", "fecha_vencimiento", "apq", "picking_pendiente", "capacidad_ubicacion",
-    "total_pasillos", "modulos_por_pasillo", "alturas_almacen",
+    "total_pasillos", "modulos_por_pasillo", "alturas_almacen", "campana_conteo", "estado_conteo",
+    "conteo_fisico", "fecha_conteo", "fecha_limite_conteo", "dias_conteo_semana",
   ];
   const rows = [
-    ["SKU-1001", "Agua mineral caja", "Bebidas", 180, 8.5, 7, 40, 100, 110, 105, 1, 1, 1, "AG-2601", "2026-01-10", "2027-01-10", "NO", 24, 250, 6, 8, 6],
-    ["SKU-1001", "Agua mineral caja", "Bebidas", 120, 8.5, 7, 40, 100, 110, 105, 1, 1, 4, "AG-2601", "2026-01-10", "2027-01-10", "NO", 0, 250, "", "", ""],
-    ["SKU-2001", "Detergente industrial", "Limpieza", 80, 18, 12, 20, 30, 28, 32, 6, 1, 1, "DT-2602", "2026-02-05", "2028-02-05", "SI", 8, 150, "", "", ""],
-    ["SKU-2001", "Detergente industrial", "Limpieza", 60, 18, 12, 20, 30, 28, 32, 6, 1, 5, "DT-2602", "2026-02-05", "2028-02-05", "SI", 0, 150, "", "", ""],
-    ["SKU-3001", "Guantes de protección", "Protección", 45, 12, 9, 25, 70, 75, 72, 5, 2, 1, "GP-2603", "2026-03-01", "2029-03-01", "NO", 18, 100, "", "", ""],
+    ["SKU-1001", "Agua mineral caja", "Bebidas", 180, 8.5, 7, 40, 100, 110, 105, 1, 1, 1, "AG-2601", "2026-01-10", "2027-01-10", "NO", 24, 250, 6, 8, 6, "Conteo anual 2026", "CONTADO", 179, "2026-07-15", "2026-09-30", 5],
+    ["SKU-1001", "Agua mineral caja", "Bebidas", 120, 8.5, 7, 40, 100, 110, 105, 1, 1, 4, "AG-2601", "2026-01-10", "2027-01-10", "NO", 0, 250, "", "", "", "Conteo anual 2026", "PENDIENTE", "", "", "2026-09-30", 5],
+    ["SKU-2001", "Detergente industrial", "Limpieza", 80, 18, 12, 20, 30, 28, 32, 6, 1, 1, "DT-2602", "2026-02-05", "2028-02-05", "SI", 8, 150, "", "", "", "Conteo anual 2026", "PENDIENTE", "", "", "2026-09-30", 5],
+    ["SKU-2001", "Detergente industrial", "Limpieza", 60, 18, 12, 20, 30, 28, 32, 6, 1, 5, "DT-2602", "2026-02-05", "2028-02-05", "SI", 0, 150, "", "", "", "Conteo anual 2026", "CONTADO", 60, "2026-07-16", "2026-09-30", 5],
+    ["SKU-3001", "Guantes de protección", "Protección", 45, 12, 9, 25, 70, 75, 72, 5, 2, 1, "GP-2603", "2026-03-01", "2029-03-01", "NO", 18, 100, "", "", "", "Conteo anual 2026", "PENDIENTE", "", "", "2026-09-30", 5],
   ];
   return [headers, ...rows];
 }

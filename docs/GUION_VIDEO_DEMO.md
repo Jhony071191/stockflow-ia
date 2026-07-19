@@ -27,7 +27,7 @@ Frase clave: “StockFlow traduce el formato de cada empresa. Solo exige SKU y c
 
 1. Mostrar la puntuación de preparación operativa y los estados completo, parcial y pendiente.
 2. Pulsar **Complementar datos**.
-3. Explicar que otro documento puede añadir demanda, costes, familias o pedidos por SKU sin duplicar cantidades.
+3. Explicar que otro documento puede añadir demanda, costes, familias o pedidos por SKU, y avance de conteo por ubicación, sin duplicar cantidades.
 4. Señalar los tres próximos datos que más funcionalidad desbloquean.
 
 Frase clave: “La IA no oculta lo que falta: mide la cobertura y une fuentes distintas con trazabilidad.”
@@ -69,15 +69,16 @@ Frase clave: “Solo fusionamos si coinciden SKU, lote, fabricación y vencimien
 ## 4:05–4:25 — Conteos cíclicos
 
 1. Abrir **Conteos cíclicos**.
-2. Mostrar uno o dos conteos anuales y el conteo de gracia opcional.
-3. Pulsar **Cargar ejemplo**.
-4. Enseñar brevemente avance, diferencias, tolerancia y exactitud.
+2. Mostrar el avance importado: 300 de 420 ubicaciones, 71,4 % y 120 pendientes.
+3. Señalar la fecha final del 30/09/2026, el objetivo anticipado del 30/08/2026 y la meta de 4 ubicaciones al día.
+4. Filtrar APQ y explicar que la lista prioriza APQ, picking y suelo antes que reserva.
+5. Mostrar uno o dos conteos anuales, el conteo de gracia y el registro manual por SKU como control complementario.
 
 ## 4:25–4:42 — Simulador y exportación
 
 1. Abrir **Simulador** y aumentar la demanda.
 2. Mostrar el cambio en riesgo.
-3. Descargar el informe Excel integral y nombrar sus seis hojas.
+3. Descargar el informe Excel integral y nombrar sus siete hojas, incluida **Avance conteo ubicaciones**.
 
 ## 4:42–4:54 — Vibe Coding
 
@@ -85,7 +86,7 @@ Mostrar brevemente:
 
 - Historial de prompts.
 - Evolución visual.
-- Veintinueve pruebas lógicas, HTML renderizado, TypeScript, lint y compilación.
+- Treinta y cinco pruebas lógicas, HTML renderizado, TypeScript, lint y compilación.
 - Aplicación desplegada.
 
 ## 4:54–5:00 — Cierre

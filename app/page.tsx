@@ -91,9 +91,11 @@ import {
 import { assessOperationalReadiness, type OperationalReadiness } from "../lib/readiness";
 import {
   addSixMonths,
+  calculateLocationCountProgress,
   calculateCountMetrics,
   createCountCampaigns,
   exportCountCsv,
+  exportPendingLocationsCsv,
   type CycleCountPlan,
 } from "../lib/cycle-counts";
 
@@ -751,6 +753,7 @@ function SimulatorView({
 
 function CyclicCountsView({
   items,
+  warehouse,
   plan,
   entries,
   activeCampaignId,
@@ -764,6 +767,7 @@ function CyclicCountsView({
   onNotify,
 }: {
   items: AnalyzedInventoryItem[];
+  warehouse: WarehouseDataset;
   plan: CycleCountPlan;
   entries: Record<string, string>;
   activeCampaignId: string;
@@ -777,6 +781,8 @@ function CyclicCountsView({
   onNotify: (message: string) => void;
 }) {
   const [filter, setFilter] = useState<"all" | "pending" | "discrepancies">("all");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationZone, setLocationZone] = useState("all");
   const campaigns = createCountCampaigns(plan);
   const campaign = campaigns.find((item) => item.id === activeCampaignId) ?? campaigns[0];
   const orderedItems = useMemo(() => {
@@ -787,6 +793,19 @@ function CyclicCountsView({
     () => calculateCountMetrics(orderedItems, entries, plan.tolerancePct),
     [orderedItems, entries, plan.tolerancePct],
   );
+  const locationProgress = useMemo(
+    () => calculateLocationCountProgress(warehouse.cycleCount),
+    [warehouse.cycleCount],
+  );
+  const filteredPendingLocations = useMemo(() => {
+    if (!locationProgress) return [];
+    const query = locationQuery.trim().toLowerCase();
+    return locationProgress.pendingRecords.filter((record) => {
+      const matchesZone = locationZone === "all" || record.zone === locationZone;
+      const haystack = [record.locationCode, record.sourceLocationCode, record.family, ...record.skus, ...record.products].join(" ").toLowerCase();
+      return matchesZone && (!query || haystack.includes(query));
+    });
+  }, [locationProgress, locationQuery, locationZone]);
   const filteredRows = metrics.rows.filter((row) => {
     if (filter === "pending") return row.physicalCount === null;
     if (filter === "discrepancies") return row.hasDiscrepancy;
@@ -794,7 +813,9 @@ function CyclicCountsView({
   });
   const isCompleted = completedCampaigns.includes(campaign.id);
   const costKnownCount = items.filter((item) => item.unitCostAvailable).length;
-  const formatDate = (date: string) => new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00`));
+  const formatDate = (date: string) => date
+    ? new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00`))
+    : "Sin fecha";
 
   const updateFrequency = (frequency: 1 | 2) => {
     const nextPlan = {
@@ -832,6 +853,60 @@ function CyclicCountsView({
         </div>
         <button className="secondary-button" onClick={exportAct} type="button"><Download size={17} /> Exportar acta</button>
       </div>
+
+      {locationProgress ? (
+        <section className="panel location-count-panel">
+          <div className="panel-heading location-count-heading">
+            <div><span className="panel-kicker">Avance importado por ubicación</span><h2>{locationProgress.campaign}</h2></div>
+            <span className={`location-progress-status ${locationProgress.status}`}>
+              {locationProgress.status === "complete" ? "Completado" : locationProgress.status === "on-track" ? "A tiempo" : locationProgress.status === "urgent" ? "Ritmo urgente" : locationProgress.status === "overdue" ? "Objetivo vencido" : "Falta fecha final"}
+            </span>
+          </div>
+          <div className="location-count-overview">
+            <article className="location-progress-card">
+              <div className="location-progress-value"><strong>{decimal.format(locationProgress.progressPct)}%</strong><span>del almacén contado</span></div>
+              <div className="location-progress-track"><span style={{ width: `${Math.min(100, locationProgress.progressPct)}%` }} /></div>
+              <p>{locationProgress.counted} de {locationProgress.total} ubicaciones elegibles · {locationProgress.excluded} excluidas</p>
+            </article>
+            <div className="location-count-kpis">
+              <article><span className="count-metric-icon red"><MapPin size={20} /></span><div><small>Ubicaciones pendientes</small><strong>{locationProgress.pending}</strong><p>priorizadas para ejecutar</p></div></article>
+              <article><span className="count-metric-icon teal"><Target size={20} /></span><div><small>Objetivo anticipado</small><strong>{locationProgress.targetDate ? formatDate(locationProgress.targetDate) : "Pendiente"}</strong><p>1 mes antes del {formatDate(locationProgress.deadline)}</p></div></article>
+              <article className="daily-target-card"><span className="count-metric-icon amber"><CalendarDays size={20} /></span><div><small>Ritmo necesario</small><strong>{locationProgress.dailyTarget || "—"} {locationProgress.dailyTarget === 1 ? "ubicación/día" : "ubicaciones/día"}</strong><p>{locationProgress.targetDate ? `${locationProgress.remainingWorkdays} días operativos · ${locationProgress.workdaysPerWeek} días/semana` : "Añade la fecha final en el Excel"}</p></div></article>
+            </div>
+          </div>
+          <div className="count-toolbar location-count-toolbar">
+            <label className="search-box warehouse-search"><Search size={17} /><input aria-label="Buscar ubicación pendiente" placeholder="Buscar ubicación, SKU o familia" value={locationQuery} onChange={(event) => setLocationQuery(event.target.value)} /></label>
+            <label className="select-box"><span>Zona</span><select value={locationZone} onChange={(event) => setLocationZone(event.target.value)}><option value="all">Todas</option><option value="APQ">APQ</option><option value="PICKING">Picking</option><option value="SUELO">Suelo</option><option value="RESERVA">Reserva</option><option value="CALIDAD">Calidad</option><option value="GENERAL">General</option></select></label>
+            <button className="ghost-button" onClick={() => { downloadTextFile("stockflow_ubicaciones_pendientes.csv", exportPendingLocationsCsv(locationProgress)); onNotify("Lista de ubicaciones pendientes preparada"); }} type="button"><Download size={16} /> Exportar pendientes</button>
+          </div>
+          <div className="count-guidance"><Info size={16} /><span>Prioridad automática: APQ, ubicaciones con picking pendiente y suelo antes que reserva. El ritmo diario se recalcula con los días operativos indicados en el Excel.</span></div>
+          <div className="table-scroll">
+            <table className="count-table location-count-table">
+              <thead><tr><th>Prioridad</th><th>Ubicación</th><th>Zona / Familia</th><th>SKU / Producto</th><th>Stock sistema</th><th>Picking próximo</th><th>Estado</th></tr></thead>
+              <tbody>
+                {filteredPendingLocations.slice(0, 100).map((record, index) => (
+                  <tr key={`${record.aisle}-${record.bay}-${record.level}`}>
+                    <td><span className="count-order">{index + 1}</span></td>
+                    <td><span className="sku-line">{record.sourceLocationCode || record.locationCode}</span><span className="product-line">P{record.aisle} · M{record.bay} · A{record.level}</span></td>
+                    <td><span className={`zone-pill zone-${record.zone.toLowerCase()}`}>{record.zone}</span><span className="product-line">{record.family}</span></td>
+                    <td><span className="sku-line">{record.skus.join(" · ") || "Ubicación vacía"}</span><span className="product-line">{record.products.join(" · ") || "Sin artículo"}</span></td>
+                    <td>{decimal.format(record.systemQuantity)}</td>
+                    <td>{decimal.format(record.pendingPicking)}</td>
+                    <td><span className="count-result pending">Pendiente</span></td>
+                  </tr>
+                ))}
+                {!filteredPendingLocations.length && <tr><td colSpan={7}><div className="empty-state"><CheckCircle2 size={24} /><strong>No hay ubicaciones pendientes en este filtro</strong><span>Prueba otra zona o búsqueda.</span></div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="count-footer"><span>Mostrando {Math.min(filteredPendingLocations.length, 100)} de {filteredPendingLocations.length} ubicaciones filtradas</span><strong>{locationProgress.dailyTarget ? `Meta: ${locationProgress.dailyTarget} al día` : "Configura la fecha final"}</strong></div>
+        </section>
+      ) : (
+        <section className="panel location-count-empty">
+          <span className="count-metric-icon teal"><MapPin size={20} /></span>
+          <div><span className="panel-kicker">Avance por ubicación</span><h2>Añádelo desde tu Excel</h2><p>Incluye ubicación, estado del conteo, fecha final y días operativos. StockFlow calculará automáticamente porcentaje, pendientes y ritmo diario para terminar un mes antes.</p></div>
+        </section>
+      )}
 
       <section className="panel count-plan-panel">
         <div className="panel-heading">
@@ -973,15 +1048,19 @@ function UploadModal({
   };
 
   const mappedFields = mapping ? UNIVERSAL_EDITABLE_FIELDS.filter((field) => mapping[field] !== null) : [];
-  const mappingReady = Boolean(mapping && mapping.sku !== null && (mode === "replace"
-    ? mapping.quantity !== null
-    : mappedFields.some((field) => field !== "sku") || mapping.locationStart !== null));
+  const hasMappedLocation = Boolean(mapping && (mapping.location !== null || mapping.locationStart !== null || (mapping.aisle !== null && mapping.bay !== null)));
+  const hasMappedCycleCount = Boolean(mapping && ["countCampaign", "countStatus", "physicalCount", "countedAt", "countDeadline", "countWorkdays"].some((field) => mapping[field as keyof UniversalMapping] !== null));
+  const mappingReady = Boolean(mapping && (mode === "replace"
+    ? mapping.sku !== null && mapping.quantity !== null
+    : (mapping.sku !== null && (mappedFields.some((field) => field !== "sku") || mapping.locationStart !== null))
+      || (hasMappedLocation && hasMappedCycleCount)));
   const mappedCount = mapping ? UNIVERSAL_EDITABLE_FIELDS.filter((field) => mapping[field] !== null).length : 0;
   const mappingGroups: Array<{ title: string; fields: Array<keyof UniversalMapping> }> = [
     { title: "Inventario y producto", fields: ["sku", "product", "quantity", "family", "unitCost"] },
     { title: "Demanda y reposición", fields: ["demand", "salesM1", "salesM2", "salesM3", "leadTime", "safetyStock", "pending"] },
     { title: "Ubicación y capacidad", fields: ["location", "zone", "aisle", "bay", "level", "capacity", "totalAisles", "baysPerAisle", "totalLevels"] },
     { title: "Trazabilidad y seguridad", fields: ["batch", "manufacturing", "expiry", "hazardous", "grade", "holdCode", "pickingIndicator"] },
+    { title: "Conteos por ubicación", fields: ["countCampaign", "countStatus", "physicalCount", "countedAt", "countDeadline", "countWorkdays"] },
   ];
   const selectColumn = (field: keyof UniversalMapping, label: string) => (
     <label className="mapping-field" key={field}>
@@ -1033,7 +1112,7 @@ function UploadModal({
               <p><Info size={14} /> Si la detección no coincide con tu archivo, corrige estos dos datos y vuelve a revisar las columnas.</p>
             </div>
             {!![...(documentMeta?.warnings ?? []), ...draft.warnings].length && <div className="mapping-notes">{[...new Set([...(documentMeta?.warnings ?? []), ...draft.warnings])].map((warning) => <span key={warning}><Info size={14} />{warning}</span>)}</div>}
-            <div className="mapping-required-note"><CheckCircle2 size={17} /><span>{mode === "replace" ? "Para un análisis nuevo solo SKU y cantidad son imprescindibles." : "Para complementar, solo necesitas SKU y al menos un campo nuevo. StockFlow los unirá sin duplicar el inventario."} Los valores ausentes nunca se inventan.</span></div>
+            <div className="mapping-required-note"><CheckCircle2 size={17} /><span>{mode === "replace" ? "Para un análisis nuevo solo SKU y cantidad son imprescindibles." : "Para complementar, usa SKU con un dato nuevo o una ubicación con campos de conteo. StockFlow los unirá sin duplicar el inventario."} Los valores ausentes nunca se inventan.</span></div>
             <div className="mapping-groups">
               {mappingGroups.map((group) => <section key={group.title}><h3>{group.title}</h3><div className="mapping-grid">{group.fields.map((field) => selectColumn(field, field === "locationStart" || field === "locationEnd" ? field : UNIVERSAL_FIELD_LABELS[field as keyof typeof UNIVERSAL_FIELD_LABELS]))}</div></section>)}
             </div>
@@ -1250,7 +1329,9 @@ export default function Home() {
         setImportMapping(null);
         setImportDocument(null);
         setActiveView("resumen");
-        showToast(`${enriched.updatedSkuCount} SKU complementados con ${enriched.appliedFields.length} tipos de datos`);
+        showToast(enriched.updatedLocationCount
+          ? `${enriched.updatedLocationCount} ubicaciones de conteo actualizadas${enriched.updatedSkuCount ? ` · ${enriched.updatedSkuCount} SKU complementados` : ""}`
+          : `${enriched.updatedSkuCount} SKU complementados con ${enriched.appliedFields.length} tipos de datos`);
         return;
       }
       const parsed = translateUniversalDraft(importDraft, importMapping);
@@ -1278,9 +1359,10 @@ export default function Home() {
       setImportDocument(null);
       const translatedLocations = buildWarehouseLocations(parsed.dataset);
       setActiveView(parsed.dataset.capabilities?.location === false ? "inventario" : "almacen");
+      const cycleCountMessage = parsed.dataset.cycleCount ? ` · ${parsed.dataset.cycleCount.records.length} ubicaciones de conteo` : "";
       showToast(parsed.dataset.capabilities?.location === false
         ? `${parsed.items.length} SKU traducidos; las ubicaciones no estaban incluidas`
-        : `${parsed.items.length} SKU y ${translatedLocations.length} ubicaciones traducidas`);
+        : `${parsed.items.length} SKU y ${translatedLocations.length} ubicaciones traducidas${cycleCountMessage}`);
     } finally {
       setProcessing(false);
     }
@@ -1300,6 +1382,7 @@ export default function Home() {
     const { default: writeExcelFile } = await import("write-excel-file/browser");
     const locations = buildWarehouseLocations(warehouse);
     const moves = calculateWarehouseMoves(warehouse, analysis.items);
+    const locationCountProgress = calculateLocationCountProgress(warehouse.cycleCount);
     const headerRow = (headers: string[]) => headers.map((value) => ({ value, fontWeight: "bold" as const, backgroundColor: "#0B4A5A", textColor: "#FFFFFF", wrap: true }));
     const dataRows = (rows: Array<Array<string | number>>) => rows.map((row) => row.map((value) => ({ value, wrap: true })));
     const summaryRows: Array<Array<string | number>> = [
@@ -1317,6 +1400,15 @@ export default function Home() {
       ["Picking pendiente conocido", locations.reduce((sum, location) => sum + location.pendingPicking, 0)],
       ["Movimientos recomendados", moves.length],
     ];
+    if (locationCountProgress) {
+      summaryRows.push(
+        ["Campaña de conteo", locationCountProgress.campaign],
+        ["Avance por ubicación", `${decimal.format(locationCountProgress.progressPct)} % (${locationCountProgress.counted}/${locationCountProgress.total})`],
+        ["Ubicaciones pendientes", locationCountProgress.pending],
+        ["Objetivo un mes antes", locationCountProgress.targetDate || "Falta fecha final"],
+        ["Ritmo diario necesario", locationCountProgress.dailyTarget ? `${locationCountProgress.dailyTarget} ubicaciones/día` : "Falta fecha final"],
+      );
+    }
     const inventoryRows = analysis.items.map((item) => [
       item.sku, item.product, item.category, item.abcAvailable ? item.abcClass : "No disponible", item.currentStock,
       item.demandAvailable ? item.averageMonthlyDemand : "No disponible", item.demandAvailable ? item.coverageDays : "No disponible",
@@ -1339,6 +1431,24 @@ export default function Home() {
       capability.status === "complete" ? "" : capability.nextStep,
     ]);
     const campaignRows = createCountCampaigns(countPlan).map((campaign) => [countPlan.clientName, campaign.label, campaign.date, completedCampaigns.includes(campaign.id) ? "Completado" : "Programado", countPlan.tolerancePct]);
+    const locationCountRows = (warehouse.cycleCount?.records ?? []).map((record) => [
+      warehouse.cycleCount?.campaign || "Conteo importado",
+      record.sourceLocationCode || record.locationCode,
+      record.zone,
+      record.family,
+      record.aisle,
+      record.bay,
+      record.level,
+      record.skus.join(" | "),
+      record.systemQuantity,
+      record.physicalCount ?? "",
+      record.countedAt,
+      record.pendingPicking,
+      record.status === "counted" ? "Contado" : record.status === "excluded" ? "Excluido" : "Pendiente",
+      warehouse.cycleCount?.deadline || "",
+      locationCountProgress?.targetDate || "",
+      locationCountProgress?.dailyTarget ?? 0,
+    ]);
     await writeExcelFile([
       { sheet: "Resumen ejecutivo", data: [headerRow(summaryRows[0] as string[]), ...dataRows(summaryRows.slice(1))], columns: [{ width: 35 }, { width: 42 }], stickyRowsCount: 1 },
       { sheet: "Inventario", data: [headerRow(["SKU", "Producto", "Familia", "ABC", "Stock", "Demanda mes", "Cobertura días", "Punto pedido", "Pedido sugerido", "Estado", "Situación", "Acción", "Valor stock"]), ...dataRows(inventoryRows)], columns: [16, 32, 22, 12, 12, 16, 16, 16, 18, 14, 24, 48, 18].map((width) => ({ width })), stickyRowsCount: 1 },
@@ -1346,8 +1456,9 @@ export default function Home() {
       { sheet: "Movimientos", data: [headerRow(["Tipo", "Prioridad", "SKU", "Producto", "Cantidad", "Origen", "Destino", "Motivo", "Control de lote"]), ...dataRows(movementRows)], columns: [16, 12, 16, 28, 14, 22, 22, 55, 55].map((width) => ({ width })), stickyRowsCount: 1 },
       { sheet: "Calidad de datos", data: [headerRow(["Capacidad", "Estado", "Cobertura", "Peso", "Uso", "Próximo paso"]), ...dataRows(qualityRows)], columns: [24, 16, 14, 10, 38, 55].map((width) => ({ width })), stickyRowsCount: 1 },
       { sheet: "Plan de conteos", data: [headerRow(["Cliente", "Campaña", "Fecha", "Estado", "Tolerancia %"]), ...dataRows(campaignRows)], columns: [30, 22, 16, 16, 16].map((width) => ({ width })), stickyRowsCount: 1 },
+      { sheet: "Avance conteo ubicaciones", data: [headerRow(["Campaña", "Ubicación", "Zona", "Familia", "Pasillo", "Módulo", "Altura", "SKU", "Stock sistema", "Conteo físico", "Fecha conteo", "Picking", "Estado", "Fecha final", "Objetivo anticipado", "Meta diaria"]), ...dataRows(locationCountRows)], columns: [25, 22, 14, 24, 10, 10, 10, 26, 16, 16, 16, 12, 15, 16, 18, 14].map((width) => ({ width })), stickyRowsCount: 1 },
     ]).toFile(`stockflow_informe_${datasetName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "inventario"}.xlsx`);
-    showToast("Informe ejecutivo Excel preparado con 6 hojas");
+    showToast("Informe ejecutivo Excel preparado con 7 hojas");
   };
 
   const downloadWarehouseTemplate = async () => {
@@ -1359,6 +1470,7 @@ export default function Home() {
       { wch: 14 }, { wch: 28 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
       { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 15 },
       { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 22 }, { wch: 18 },
+      { wch: 24 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
     ].map((column) => ({ width: column.wch }));
     const instructionsRows = [
       [{ value: "STOCKFLOW IA — PLANTILLA DE UBICACIONES", fontWeight: "bold" as const, fontSize: 16, textColor: "#063B48" }],
@@ -1368,6 +1480,9 @@ export default function Home() {
       ["Marca APQ=SI para mercancía peligrosa. Nunca se mezcla con ubicaciones generales."],
       ["La fusión solo se recomienda cuando coinciden SKU, lote, fecha de fabricación y fecha de vencimiento."],
       ["picking_pendiente indica las unidades comprometidas en pedidos próximos."],
+      ["Para medir el conteo por ubicación, informa campana_conteo y estado_conteo como CONTADO, PENDIENTE o EXCLUIDO."],
+      ["fecha_limite_conteo es el compromiso final del cliente. StockFlow fijará el objetivo un mes antes y calculará ubicaciones por día."],
+      ["dias_conteo_semana admite 5, 6 o 7 y determina qué días se consideran operativos."],
       ["No incluyas datos personales ni información real sensible en la demostración del hackathon."],
     ];
     await writeExcelFile([
@@ -1447,7 +1562,7 @@ export default function Home() {
         {activeView === "almacen" && <WarehouseView dataset={warehouse} analysis={analysis} onUpload={() => openUpload("replace")} onExport={exportWarehouse} />}
         {activeView === "acciones" && <ActionsView items={analysis.items} onExport={exportResults} onSelect={setSelectedItem} />}
         {activeView === "simulador" && <SimulatorView inventory={inventory} baseline={analysis} onSelect={setSelectedItem} />}
-        {activeView === "conteos" && <CyclicCountsView items={analysis.items} plan={countPlan} entries={countEntriesByCampaign[activeCampaignId] ?? {}} activeCampaignId={activeCampaignId} completedCampaigns={completedCampaigns} onPlanChange={setCountPlan} onEntryChange={(sku, value) => setCountEntriesByCampaign((current) => ({ ...current, [activeCampaignId]: { ...(current[activeCampaignId] ?? {}), [sku]: value } }))} onCampaignChange={setActiveCampaignId} onFillSample={fillCountSample} onReset={resetCount} onComplete={completeCount} onNotify={showToast} />}
+        {activeView === "conteos" && <CyclicCountsView items={analysis.items} warehouse={warehouse} plan={countPlan} entries={countEntriesByCampaign[activeCampaignId] ?? {}} activeCampaignId={activeCampaignId} completedCampaigns={completedCampaigns} onPlanChange={setCountPlan} onEntryChange={(sku, value) => setCountEntriesByCampaign((current) => ({ ...current, [activeCampaignId]: { ...(current[activeCampaignId] ?? {}), [sku]: value } }))} onCampaignChange={setActiveCampaignId} onFillSample={fillCountSample} onReset={resetCount} onComplete={completeCount} onNotify={showToast} />}
       </section>
 
       <UploadModal
