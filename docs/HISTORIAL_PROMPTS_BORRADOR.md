@@ -174,6 +174,45 @@
 
 **Resultado:** centro universal compatible con XLSX, CSV, TSV, JSON, PDF con texto, DOCX y TXT; modos de nuevo análisis y enriquecimiento; auditoría de preparación 0–100 con cobertura completa/parcial/pendiente; ABC y valor parcial honestos; conteo de gracia; compatibilidad familiar; informe Excel de seis hojas; 29 pruebas lógicas, HTML renderizado, TypeScript, ESLint y compilación superados. El Excel empresarial real se validó localmente sin incorporarlo al repositorio ni transmitir sus datos.
 
+## Prompt 18 — Dataset retail integral para el video
+
+**Autor:** participante
+**Fecha:** 19/07/2026
+**Prompt literal:**
+
+> Allan creame un excel para realizar el video quiero que sea para una empresa de retail en la cual deben de haber 14 grupos familiares artículos en APQ que pida reposiciones, cambio de familia por estar ubicado mal que muestre tambien que tenemos picking pendientes que podamos ver cuanto falta para terminar los conteos cíclicos, es decir quieronun excel con el cual pueda demostrar todos los puntos de StockFlow IA
+
+**Resultado:** creación de un Excel ficticio y seguro para NovaRetail Iberia S.L. con 14 familias, 28 SKU, 420 ubicaciones, 364 huecos vacíos, 56 ocupados, 2 SKU APQ, 2 cambios de familia, 664 unidades de picking y casos verificables de rotura, sobrestock, fusión, no fusión y reposición. Incluye guía de grabación, inventario universal, conteos, catálogo familiar y resultados esperados.
+
+## Prompt 19 — Avance y meta diaria de conteos por ubicación
+
+**Autor:** participante
+**Fecha:** 19/07/2026
+**Prompt literal:**
+
+> Podríamos arreglar lo de los conteos cíclicos y que con base en lo que nos den en el excel nos diga el porcentaje y que ubicaciones están pendientes y te diga tambien cuantas deberías de contar al dia para alcanzar la meta con 1 mes de anticipación a la fecha final.
+
+**Instrucción consolidada dada a Codex:**
+
+> Amplía el traductor universal para reconocer campaña, estado, conteo físico, fecha de conteo, fecha final y días operativos por ubicación. Calcula ubicaciones elegibles, contadas, pendientes, porcentaje y una fecha objetivo situada un mes calendario antes del compromiso final. Calcula la meta diaria redondeada hacia arriba según 5, 6 o 7 días operativos por semana. Muestra las ubicaciones pendientes priorizando APQ, picking y suelo, permite buscarlas, filtrarlas y exportarlas. Conserva el registro manual por SKU como control complementario, actualiza la plantilla, el informe integral, el Excel del video, las pruebas y la documentación.
+
+**Resultado:** módulo premium de avance importado por ubicación; compatibilidad con inventarios completos y documentos de conteo sin SKU; lista priorizada y exportable; objetivo anticipado y ritmo diario; séptima hoja del informe ejecutivo; plantilla ampliada; dataset del video actualizado a 300/420 ubicaciones, 120 pendientes, 71,4 % y 4 ubicaciones/día. Validación con 35 pruebas lógicas y lectura del Excel real mediante el mismo motor utilizado por StockFlow.
+
+## Prompt 20 — Rutas óptimas y cinco soluciones ante caducidad
+
+**Autor:** participante
+**Fecha:** 20/07/2026
+
+**Prompt literal:**
+
+> No veo que me diga de que ubicacion a cual debe de ir por ejemplo si debo de realizar una devolucion a las alturas porque tengo sobre stock no me sugiere cual es la mas optima y la app lo debe de tener tambien como si quiero un reaprovisionamiento de altura a suelo porque voy a tener una rotura de producto y mas aun si tengo una posible expiracion debe de darme varrios escenarios como por ejemplo realizar un impulso de mercancia a las tiendas que abastezco para que no se venzan en el almacen o que me de la opcion de contactar con ONG´S para que pueda donarselo con tiempo y ellos lo repartan entre la poblacion entre ellos caritas, cruz roja etc debes de darme 5 posibilidades creando la admosfera que la aplicacion tambien te ayuda a solventar y te da soluciones para cuando un producto esta cerca a caducar.
+
+**Instrucción consolidada dada a Codex:**
+
+> Convierte cada movimiento en una ruta ejecutable con origen y destino exactos, selecciona el destino óptimo mediante una puntuación explicable y conserva alternativas. Para cada lote próximo a caducar calcula unidades expuestas y presenta cinco vías: FEFO a suelo, impulso a tiendas, promoción, donación social y devolución o transferencia con proveedor. Incluye contactos oficiales de FESBAL, Cáritas y Cruz Roja sin automatizar la donación, bloquea APQ no apto y cualquier lote caducado, amplía la exportación y añade pruebas.
+
+**Resultado:** rutas origen → destino con puntuación, factores y tres alternativas; centro de rescate con cinco escenarios, requisitos, cantidades, enlaces oficiales y controles de seguridad; informe Excel de ocho hojas y 38 pruebas lógicas superadas.
+
 ## Evidencias que deben incorporarse al Google Doc
 
 - Capturas o exportación de la conversación de Codex.

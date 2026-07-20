@@ -6,6 +6,7 @@ import writeExcelFile from "write-excel-file/node";
 import { analyzeInventory } from "../lib/inventory.ts";
 import {
   buildWarehouseLocations,
+  calculateExpiryRiskPlans,
   calculateWarehouseMoves,
   createDemoWarehouseDataset,
   createWarehouseTemplateRows,
@@ -81,7 +82,11 @@ test("solo fusiona en altura cuando lote y ambas fechas coinciden", () => {
   };
   const inventory = inventoryFromWarehouse(dataset);
   const moves = calculateWarehouseMoves(dataset, analyzeInventory(inventory).items);
-  assert.ok(moves.some((move) => move.type === "consolidate" && move.to === "P01-M01-A04"));
+  const exactMove = moves.find((move) => move.type === "consolidate" && move.to === "P01-M01-A04");
+  assert.ok(exactMove);
+  assert.ok(exactMove.destinationScore > 0);
+  assert.ok(exactMove.optimizationFactors.some((factor) => factor.includes("fusión exacta")));
+  assert.ok(exactMove.alternatives.length > 0);
 
   const incompatible = {
     ...dataset,
@@ -145,4 +150,53 @@ test("el importador CSV heredado respeta campos entrecomillados", () => {
   const parsed = parseWarehouseCsv('SKU,Producto,Cantidad,Coste unitario,Demanda mensual\nA-1,"Producto, especial",10,4,8');
   assert.deepEqual(parsed.errors, []);
   assert.equal(parsed.items[0].product, "Producto, especial");
+});
+
+test("explica la ruta óptima y conserva ubicaciones alternativas", () => {
+  const common = {
+    sku: "ROUTE-1", product: "Producto con ruta", family: "Familia R", unitCost: 3,
+    leadTimeDays: 5, safetyStock: 5, salesM1: 20, salesM2: 20, salesM3: 20,
+    batch: "RT-1", manufacturingDate: "2026-01-01", expiryDate: "2027-01-01",
+    hazardous: false, pendingPicking: 0, capacity: 200,
+  };
+  const dataset = {
+    config: { aisleCount: 2, baysPerAisle: 3, levelCount: 5, defaultCapacity: 200, apqAisles: [] },
+    aisleFamilies: { 1: "Familia R", 2: "Familia R" }, locationOverrides: [], warnings: [],
+    stocks: [{ ...common, id: "route-floor", quantity: 100, aisle: 1, bay: 2, level: 1 }],
+  };
+  const moves = calculateWarehouseMoves(dataset, analyzeInventory(inventoryFromWarehouse(dataset)).items);
+  const move = moves.find((candidate) => candidate.type === "elevate");
+  assert.ok(move);
+  assert.match(move.from, /^P01-M02-A01$/);
+  assert.match(move.to, /^P01-M02-A0[2-5]$/);
+  assert.ok(move.destinationScore >= 70);
+  assert.ok(move.alternatives.some((alternative) => alternative.location !== move.to));
+  assert.equal(move.projectedFloorAvailability, 20);
+});
+
+test("genera cinco vías seguras para rescatar un lote próximo a caducar", () => {
+  const dataset = createDemoWarehouseDataset(SAMPLE_INVENTORY);
+  const analysis = analyzeInventory(inventoryFromWarehouse(dataset));
+  const plans = calculateExpiryRiskPlans(dataset, analysis.items, new Date("2026-07-20T12:00:00Z"));
+  const coffee = plans.find((plan) => plan.sku === "SKU-2087");
+  assert.ok(coffee);
+  assert.equal(coffee.solutions.length, 5);
+  assert.ok(coffee.quantityAtRisk > 0);
+  assert.equal(coffee.recommendedSolution, "stores");
+  const donation = coffee.solutions.find((solution) => solution.id === "donation");
+  assert.equal(donation.enabled, true);
+  assert.deepEqual(donation.partners.map((partner) => partner.name), [
+    "FESBAL · Bancos de Alimentos",
+    "Cáritas Española",
+    "Cruz Roja Española",
+  ]);
+});
+
+test("bloquea venta y donación cuando el lote ya está caducado", () => {
+  const dataset = createDemoWarehouseDataset(SAMPLE_INVENTORY.slice(0, 1));
+  dataset.stocks = dataset.stocks.map((stock) => ({ ...stock, expiryDate: "2026-07-01" }));
+  const plans = calculateExpiryRiskPlans(dataset, analyzeInventory(inventoryFromWarehouse(dataset)).items, new Date("2026-07-20T12:00:00Z"));
+  assert.equal(plans[0].recommendedSolution, "withdraw");
+  assert.ok(plans[0].solutions.every((solution) => solution.enabled === false));
+  assert.match(plans[0].solutions[0].blockedReason, /bloquear/i);
 });

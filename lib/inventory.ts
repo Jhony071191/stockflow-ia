@@ -67,7 +67,7 @@ export type CsvParseResult = {
 export const SAMPLE_INVENTORY: RawInventoryItem[] = [
   { sku: "SKU-1042", product: "Aceite de oliva 1 L", category: "Alimentación", currentStock: 18, unitCost: 6.8, leadTimeDays: 12, safetyStock: 28, salesM1: 214, salesM2: 198, salesM3: 221, expiryDate: "2026-11-30" },
   { sku: "SKU-0981", product: "Leche UHT caja", category: "Alimentación", currentStock: 24, unitCost: 14.2, leadTimeDays: 8, safetyStock: 36, salesM1: 182, salesM2: 196, salesM3: 177, expiryDate: "2026-08-18" },
-  { sku: "SKU-2087", product: "Café premium 500 g", category: "Alimentación", currentStock: 196, unitCost: 9.5, leadTimeDays: 10, safetyStock: 18, salesM1: 47, salesM2: 52, salesM3: 50, expiryDate: "2027-02-14" },
+  { sku: "SKU-2087", product: "Café premium 500 g", category: "Alimentación", currentStock: 196, unitCost: 9.5, leadTimeDays: 10, safetyStock: 18, salesM1: 47, salesM2: 52, salesM3: 50, expiryDate: "2026-09-10" },
   { sku: "SKU-3124", product: "Guantes nitrilo M", category: "Higiene", currentStock: 260, unitCost: 12.3, leadTimeDays: 18, safetyStock: 95, salesM1: 195, salesM2: 214, salesM3: 202 },
   { sku: "SKU-4410", product: "Detergente 3 L", category: "Limpieza", currentStock: 94, unitCost: 7.1, leadTimeDays: 9, safetyStock: 20, salesM1: 42, salesM2: 48, salesM3: 43 },
   { sku: "SKU-1880", product: "Arroz largo 1 kg", category: "Alimentación", currentStock: 340, unitCost: 1.2, leadTimeDays: 7, safetyStock: 90, salesM1: 271, salesM2: 263, salesM3: 276, expiryDate: "2027-01-12" },

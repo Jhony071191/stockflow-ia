@@ -56,41 +56,49 @@ Si el archivo de demostración omite costes o demanda, señalar los indicadores 
 
 Frase clave: “Si el Excel solo confirma ubicaciones ocupadas, StockFlow no inventa huecos. Con el maestro completo, la altura uno es suelo y las superiores son reserva; APQ permanece segregado.”
 
-## 3:25–4:05 — Plan de movimientos explicable
+## 3:25–3:52 — Rutas logísticas óptimas
 
 1. Mostrar una acción **Subir a altura**.
 2. Explicar que queda un mes de demanda en suelo después del picking pendiente.
-3. Mostrar una **Fusión exacta** y leer la regla de lote y fechas.
-4. Mostrar un destino vacío cuando la fusión no es posible.
-5. Mostrar una **Reposición al suelo** con origen y destino concretos.
+3. Leer en pantalla la ruta completa **origen → destino** y la puntuación sobre 100.
+4. Mostrar los factores de decisión y abrir las tres ubicaciones alternativas.
+5. Mostrar una **Reposición al suelo** desde altura, explicando FEFO.
 
-Frase clave: “Solo fusionamos si coinciden SKU, lote, fabricación y vencimiento; si no, buscamos un hueco vacío compatible.”
+Frase clave: “StockFlow no solo dice qué mover: indica desde dónde, hacia qué ubicación y por qué ese destino es el más adecuado. Solo fusiona con lote y fechas idénticos.”
 
-## 4:05–4:25 — Conteos cíclicos
+## 3:52–4:18 — Cinco soluciones ante caducidad
+
+1. Abrir **Acciones** y bajar al **Centro de rescate de caducidades**.
+2. Seleccionar el lote de café próximo a vencer y señalar días, ubicaciones, unidades y valor en riesgo.
+3. Mostrar las cinco opciones: FEFO, impulso a tiendas, promoción, donación y proveedor.
+4. En donación, enseñar los accesos oficiales a FESBAL, Cáritas y Cruz Roja.
+5. Señalar el control de seguridad: trazabilidad, aceptación y vida útil; un lote caducado queda bloqueado.
+
+Frase clave: “La aplicación transforma una alerta de caducidad en cinco planes concretos y seguros, para vender, redistribuir o donar a tiempo antes de desperdiciar.”
+
+## 4:18–4:36 — Conteos cíclicos
 
 1. Abrir **Conteos cíclicos**.
 2. Mostrar el avance importado: 300 de 420 ubicaciones, 71,4 % y 120 pendientes.
 3. Señalar la fecha final del 30/09/2026, el objetivo anticipado del 30/08/2026 y la meta de 4 ubicaciones al día.
-4. Filtrar APQ y explicar que la lista prioriza APQ, picking y suelo antes que reserva.
-5. Mostrar uno o dos conteos anuales, el conteo de gracia y el registro manual por SKU como control complementario.
+4. Explicar que la lista prioriza APQ, picking y suelo antes que reserva.
 
-## 4:25–4:42 — Simulador y exportación
+## 4:36–4:46 — Exportación integral
 
-1. Abrir **Simulador** y aumentar la demanda.
-2. Mostrar el cambio en riesgo.
-3. Descargar el informe Excel integral y nombrar sus siete hojas, incluida **Avance conteo ubicaciones**.
+1. Descargar el informe Excel integral.
+2. Nombrar sus ocho hojas, incluidas **Movimientos**, **Rescate caducidades** y **Avance conteo ubicaciones**.
 
-## 4:42–4:54 — Vibe Coding
+## 4:46–4:56 — Vibe Coding
 
 Mostrar brevemente:
 
 - Historial de prompts.
 - Evolución visual.
-- Treinta y cinco pruebas lógicas, HTML renderizado, TypeScript, lint y compilación.
+- Treinta y ocho pruebas lógicas, HTML renderizado, TypeScript, lint y compilación.
 - Aplicación desplegada.
 
-## 4:54–5:00 — Cierre
+## 4:56–5:00 — Cierre
 
-“StockFlow IA convierte los datos de inventario en decisiones físicas claras para reducir pérdidas, aprovechar el espacio y trabajar con menos incertidumbre.”
+“StockFlow IA convierte los datos de inventario en rutas y soluciones concretas para reducir roturas, caducidades y desperdicio, y ayudar a que el excedente llegue a quien lo necesita.”
 
 Pantalla final: nombre del proyecto y URL funcional.

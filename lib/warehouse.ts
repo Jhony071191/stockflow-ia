@@ -136,6 +136,13 @@ export type WarehouseLocation = {
 
 export type WarehouseMoveType = "consolidate" | "elevate" | "replenish" | "blocked";
 
+export type WarehouseMoveAlternative = {
+  location: string;
+  score: number;
+  freeCapacity: number;
+  reason: string;
+};
+
 export type WarehouseMove = {
   id: string;
   type: WarehouseMoveType;
@@ -148,6 +155,55 @@ export type WarehouseMove = {
   title: string;
   reason: string;
   lotRule: string;
+  destinationScore?: number;
+  routeDistance?: number;
+  optimizationFactors?: string[];
+  alternatives?: WarehouseMoveAlternative[];
+  projectedDestinationQuantity?: number;
+  projectedFloorAvailability?: number;
+  sourceBatch?: string;
+  sourceExpiryDate?: string;
+};
+
+export type ExpirySolutionType = "fefo" | "stores" | "promotion" | "donation" | "supplier";
+
+export type ExpiryPartner = {
+  name: string;
+  url: string;
+};
+
+export type ExpirySolution = {
+  id: ExpirySolutionType;
+  order: number;
+  title: string;
+  summary: string;
+  impact: string;
+  timeframe: string;
+  quantity: number;
+  requirements: string[];
+  enabled: boolean;
+  blockedReason?: string;
+  partners?: ExpiryPartner[];
+};
+
+export type ExpiryRiskPlan = {
+  id: string;
+  sku: string;
+  product: string;
+  family: string;
+  batch: string;
+  expiryDate: string;
+  daysRemaining: number;
+  locations: string[];
+  quantity: number;
+  pendingPicking: number;
+  projectedDemandUntilExpiry: number;
+  quantityAtRisk: number;
+  valueAtRisk: number;
+  hazardous: boolean;
+  status: "expired" | "critical" | "urgent" | "watch";
+  recommendedSolution: ExpirySolutionType | "withdraw";
+  solutions: ExpirySolution[];
 };
 
 export type WarehouseParseResult = {
@@ -385,38 +441,110 @@ export function warehouseSummary(locations: WarehouseLocation[]) {
   };
 }
 
+type RankedWarehouseTarget = {
+  location: WarehouseLocation;
+  merge: boolean;
+  score: number;
+  distance: number;
+  freeCapacity: number;
+  factors: string[];
+};
+
+const stockFingerprint = (stock: WarehouseStock) => [
+  stock.sku,
+  stock.batch,
+  stock.manufacturingDate,
+  stock.expiryDate,
+  stock.hazardous ? "APQ" : "GENERAL",
+].join("|");
+
+const rankTargets = (
+  locations: WarehouseLocation[],
+  source: WarehouseStock,
+  targetLevel: "floor" | "height",
+  reservedCapacity: Map<string, number>,
+  reservedOwner: Map<string, string>,
+  requestedQuantity: number,
+): RankedWarehouseTarget[] => {
+  const fingerprint = stockFingerprint(source);
+  return locations.flatMap((location): RankedWarehouseTarget[] => {
+    const correctLevel = targetLevel === "floor" ? location.level === 1 : location.level > 1;
+    const correctZone = source.hazardous ? location.zone === "APQ" : location.zone !== "APQ";
+    const owner = reservedOwner.get(location.code);
+    const freeCapacity = location.capacity - location.quantity - (reservedCapacity.get(location.code) ?? 0);
+    if (!correctLevel || !correctZone || freeCapacity <= 0 || (owner && owner !== fingerprint)) return [];
+
+    const merge = location.contents.length > 0 && location.contents.every((item) => exactLotMatch(source, item));
+    const emptyCompatible = location.contents.length === 0 && (
+      location.family === source.family
+      || location.family === "Sin asignar"
+      || (source.hazardous && location.zone === "APQ")
+    );
+    if (!merge && !emptyCompatible) return [];
+
+    const aisleDistance = Math.abs(location.aisle - source.aisle);
+    const bayDistance = Math.abs(location.bay - source.bay);
+    const levelDistance = Math.abs(location.level - source.level);
+    const distance = aisleDistance * 7 + bayDistance * 2 + levelDistance;
+    const exactFamily = location.family === source.family || (source.hazardous && location.zone === "APQ");
+    const fullFit = freeCapacity >= requestedQuantity;
+    let score = 44;
+    score += merge ? 27 : 11;
+    score += exactFamily ? 10 : location.family === "Sin asignar" ? 5 : 0;
+    score += location.aisle === source.aisle ? 15 : Math.max(0, 7 - aisleDistance * 2);
+    score += location.bay === source.bay ? 5 : 0;
+    score += fullFit ? 7 : 2;
+    score -= Math.min(24, distance);
+    if (source.hazardous && location.zone === "APQ") score += 4;
+
+    const factors = [
+      merge
+        ? "fusión exacta de SKU, lote, fabricación y vencimiento"
+        : `hueco vacío compatible con ${source.hazardous ? "zona APQ" : `familia ${source.family}`}`,
+      location.aisle === source.aisle
+        ? "mismo pasillo: menor recorrido"
+        : `pasillo compatible más próximo · distancia ${distance}`,
+      `${Math.floor(freeCapacity)} ud. libres${fullFit ? " · movimiento completo" : " · movimiento parcial"}`,
+      targetLevel === "floor" ? "destino de suelo/picking" : `altura ${location.level} de reserva`,
+    ];
+    if (source.hazardous) factors.push("segregación APQ validada");
+
+    return [{
+      location,
+      merge,
+      score: Math.round(clamp(score, 1, 99)),
+      distance,
+      freeCapacity,
+      factors,
+    }];
+  }).sort((left, right) => (
+    right.score - left.score
+    || right.freeCapacity - left.freeCapacity
+    || left.distance - right.distance
+    || left.location.code.localeCompare(right.location.code, undefined, { numeric: true })
+  ));
+};
+
 const pickTarget = (
   locations: WarehouseLocation[],
   source: WarehouseStock,
   targetLevel: "floor" | "height",
   reservedCapacity: Map<string, number>,
+  reservedOwner: Map<string, string>,
+  requestedQuantity: number,
 ) => {
-  const candidates = locations.filter((location) => {
-    const isLevel = targetLevel === "floor" ? location.level === 1 : location.level > 1;
-    const isZone = source.hazardous ? location.zone === "APQ" : location.zone !== "APQ";
-    const freeCapacity = location.capacity - location.quantity - (reservedCapacity.get(location.code) ?? 0);
-    return isLevel && isZone && freeCapacity > 0;
-  });
-
-  const compatible = candidates
-    .filter((location) => location.contents.length > 0 && location.contents.every((item) => exactLotMatch(source, item)))
-    .sort((left, right) => Number(right.aisle === source.aisle) - Number(left.aisle === source.aisle))[0];
-  if (compatible) return { location: compatible, merge: true };
-
-  const empty = candidates
-    .filter((location) => location.contents.length === 0 && (
-      location.family === source.family
-      || location.family === "Sin asignar"
-      || (source.hazardous && location.zone === "APQ")
-    ))
-    .sort((left, right) => {
-      const leftFamily = left.family === source.family || left.family === "Sin asignar" ? 1 : 0;
-      const rightFamily = right.family === source.family || right.family === "Sin asignar" ? 1 : 0;
-      const leftAisle = left.aisle === source.aisle ? 1 : 0;
-      const rightAisle = right.aisle === source.aisle ? 1 : 0;
-      return rightFamily - leftFamily || rightAisle - leftAisle || left.aisle - right.aisle || left.bay - right.bay || left.level - right.level;
-    })[0];
-  return empty ? { location: empty, merge: false } : null;
+  const ranked = rankTargets(locations, source, targetLevel, reservedCapacity, reservedOwner, requestedQuantity);
+  const best = ranked[0];
+  if (!best) return null;
+  return {
+    ...best,
+    alternatives: ranked.slice(1, 4).map((candidate) => ({
+      location: candidate.location.code,
+      score: candidate.score,
+      freeCapacity: Math.floor(candidate.freeCapacity),
+      reason: candidate.factors.slice(0, 2).join(" · "),
+    })),
+  };
 };
 
 export function calculateWarehouseMoves(dataset: WarehouseDataset, items: AnalyzedInventoryItem[]): WarehouseMove[] {
@@ -426,6 +554,7 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
   const stocksBySku = new Map<string, WarehouseStock[]>();
   dataset.stocks.forEach((stock) => stocksBySku.set(stock.sku, [...(stocksBySku.get(stock.sku) ?? []), stock]));
   const reservedCapacity = new Map<string, number>();
+  const reservedOwner = new Map<string, string>();
   const moves: WarehouseMove[] = [];
 
   stocksBySku.forEach((stocks, sku) => {
@@ -445,7 +574,7 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
         if (excess <= 0) break;
         let sourceRemaining = Math.min(source.quantity, excess);
         while (sourceRemaining > 0 && excess > 0) {
-          const target = pickTarget(locations, source, "height", reservedCapacity);
+          const target = pickTarget(locations, source, "height", reservedCapacity, reservedOwner, Math.min(sourceRemaining, excess));
           if (!target) {
             moves.push({
               id: `blocked-up-${source.id}-${moves.length}`,
@@ -458,6 +587,8 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
               title: "Sin hueco compatible en altura",
               reason: `Mantener ${monthTarget} ud. disponibles tras ${pendingPicking} ud. de picking y crear espacio de reserva compatible.`,
               lotRule: "No fusionar: falta un hueco compatible o no están completos lote, fabricación y vencimiento.",
+              sourceBatch: source.batch,
+              sourceExpiryDate: source.expiryDate,
             });
             sourceRemaining = 0;
             excess = 0;
@@ -467,6 +598,7 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
           const quantity = Math.max(0, Math.min(sourceRemaining, excess, freeCapacity));
           if (!quantity) break;
           reservedCapacity.set(target.location.code, (reservedCapacity.get(target.location.code) ?? 0) + quantity);
+          reservedOwner.set(target.location.code, stockFingerprint(source));
           moves.push({
             id: `up-${source.id}-${target.location.code}-${moves.length}`,
             type: target.merge ? "consolidate" : "elevate",
@@ -481,6 +613,14 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
             lotRule: target.merge
               ? `Fusión permitida: lote ${source.batch}, fabricación ${source.manufacturingDate} y vencimiento ${source.expiryDate} coinciden exactamente.`
               : "Ubicación vacía seleccionada porque no existe una fusión con lote y fechas idénticos.",
+            destinationScore: target.score,
+            routeDistance: target.distance,
+            optimizationFactors: target.factors,
+            alternatives: target.alternatives,
+            projectedDestinationQuantity: target.location.quantity + (reservedCapacity.get(target.location.code) ?? 0),
+            projectedFloorAvailability: monthTarget,
+            sourceBatch: source.batch,
+            sourceExpiryDate: source.expiryDate,
           });
           sourceRemaining -= quantity;
           excess -= quantity;
@@ -495,7 +635,7 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
         if (shortage <= 0) break;
         let sourceRemaining = Math.min(source.quantity, shortage);
         while (sourceRemaining > 0 && shortage > 0) {
-          const target = pickTarget(locations, source, "floor", reservedCapacity);
+          const target = pickTarget(locations, source, "floor", reservedCapacity, reservedOwner, Math.min(sourceRemaining, shortage));
           if (!target) {
             moves.push({
               id: `blocked-down-${source.id}-${moves.length}`,
@@ -508,6 +648,8 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
               title: "Sin hueco de picking compatible",
               reason: `Tras ${pendingPicking} ud. pendientes, faltan ${shortage} ud. para cubrir un mes en suelo.`,
               lotRule: "No mezclar lotes o fechas: habilitar un hueco de suelo compatible.",
+              sourceBatch: source.batch,
+              sourceExpiryDate: source.expiryDate,
             });
             sourceRemaining = 0;
             shortage = 0;
@@ -517,6 +659,7 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
           const quantity = Math.max(0, Math.min(sourceRemaining, shortage, freeCapacity));
           if (!quantity) break;
           reservedCapacity.set(target.location.code, (reservedCapacity.get(target.location.code) ?? 0) + quantity);
+          reservedOwner.set(target.location.code, stockFingerprint(source));
           moves.push({
             id: `down-${source.id}-${target.location.code}-${moves.length}`,
             type: "replenish",
@@ -531,6 +674,14 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
             lotRule: target.merge
               ? `Destino compatible: lote ${source.batch} y fechas de fabricación/vencimiento idénticas.`
               : "Destino de suelo vacío; aplicar FEFO y confirmar el lote antes del movimiento.",
+            destinationScore: target.score,
+            routeDistance: target.distance,
+            optimizationFactors: ["FEFO: origen con vencimiento más próximo", ...target.factors],
+            alternatives: target.alternatives,
+            projectedDestinationQuantity: target.location.quantity + (reservedCapacity.get(target.location.code) ?? 0),
+            projectedFloorAvailability: monthTarget,
+            sourceBatch: source.batch,
+            sourceExpiryDate: source.expiryDate,
           });
           sourceRemaining -= quantity;
           shortage -= quantity;
@@ -541,6 +692,156 @@ export function calculateWarehouseMoves(dataset: WarehouseDataset, items: Analyz
 
   const order: Record<WarehouseMoveType, number> = { blocked: 0, replenish: 1, consolidate: 2, elevate: 3 };
   return moves.sort((left, right) => order[left.type] - order[right.type] || right.quantity - left.quantity);
+}
+
+const EXPIRY_PARTNERS: ExpiryPartner[] = [
+  { name: "FESBAL · Bancos de Alimentos", url: "https://fesbal.org/donacion-de-alimentos-empresa/" },
+  { name: "Cáritas Española", url: "https://www.caritas.es/formulario-contacta-con-caritas/" },
+  { name: "Cruz Roja Española", url: "https://www2.cruzroja.es/formulario-contacto" },
+];
+
+const dateOnlyUtc = (value: string | Date) => {
+  if (value instanceof Date) return Date.UTC(value.getFullYear(), value.getMonth(), value.getDate());
+  const parsed = cleanDate(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!parsed) return Number.NaN;
+  return Date.UTC(Number(parsed[1]), Number(parsed[2]) - 1, Number(parsed[3]));
+};
+
+export function calculateExpiryRiskPlans(
+  dataset: WarehouseDataset,
+  items: AnalyzedInventoryItem[],
+  referenceDate: Date = new Date(),
+  horizonDays = 120,
+): ExpiryRiskPlan[] {
+  const itemBySku = new Map(items.map((item) => [item.sku, item]));
+  const groups = new Map<string, WarehouseStock[]>();
+  dataset.stocks.forEach((stock) => {
+    if (!stock.expiryDate) return;
+    const key = [stock.sku, stock.batch || "SIN-LOTE", stock.manufacturingDate || "SIN-FAB", stock.expiryDate].join("|");
+    groups.set(key, [...(groups.get(key) ?? []), stock]);
+  });
+  const today = dateOnlyUtc(referenceDate);
+
+  return [...groups.entries()].flatMap(([id, stocks]): ExpiryRiskPlan[] => {
+    const first = stocks[0];
+    const expiry = dateOnlyUtc(first.expiryDate);
+    if (!Number.isFinite(expiry) || !Number.isFinite(today)) return [];
+    const daysRemaining = Math.ceil((expiry - today) / 86_400_000);
+    if (daysRemaining > horizonDays) return [];
+
+    const item = itemBySku.get(first.sku);
+    const quantity = stocks.reduce((sum, stock) => sum + stock.quantity, 0);
+    const pendingPicking = stocks.reduce((sum, stock) => sum + stock.pendingPicking, 0);
+    const availableAfterPicking = Math.max(0, quantity - pendingPicking);
+    const averageDailyDemand = item?.demandAvailable ? item.averageMonthlyDemand / 30 : 0;
+    const projectedDemandUntilExpiry = daysRemaining > 0
+      ? Math.min(availableAfterPicking, Math.floor(averageDailyDemand * daysRemaining))
+      : 0;
+    const quantityAtRisk = daysRemaining < 0
+      ? availableAfterPicking
+      : Math.max(0, Math.ceil(availableAfterPicking - projectedDemandUntilExpiry));
+    const hazardous = stocks.some((stock) => stock.hazardous);
+    const expired = daysRemaining < 0;
+    const protectedQuantity = Math.max(0, quantityAtRisk);
+    const blockedReason = "Lote caducado: bloquear, segregar y activar el procedimiento de retirada; no vender, donar ni redistribuir.";
+    const donationBlockedReason = hazardous
+      ? "No se propone donación social para mercancía APQ: requiere un canal especializado y validación legal."
+      : daysRemaining < 7
+        ? "Margen insuficiente para confirmar recepción y reparto seguro antes de la caducidad."
+        : undefined;
+    const urgentWindow = daysRemaining <= 15 ? "Hoy" : daysRemaining <= 45 ? "En 24 h" : "Esta semana";
+    const baseRequirements = [
+      `Mantener trazabilidad del lote ${first.batch || "no informado"}`,
+      "Verificar integridad, etiquetado y condiciones de conservación",
+    ];
+    const solutions: ExpirySolution[] = [
+      {
+        id: "fefo",
+        order: 1,
+        title: "Acelerar FEFO y reponer a suelo",
+        summary: "Dar salida primero al lote que vence antes y colocarlo en la ubicación de picking compatible.",
+        impact: quantityAtRisk > 0 ? `Reduce la exposición inmediata de ${quantityAtRisk} ud.` : "La demanda prevista podría absorber el lote si se respeta FEFO.",
+        timeframe: "Hoy",
+        quantity: Math.min(availableAfterPicking, Math.max(protectedQuantity, Math.ceil(averageDailyDemand * 7))),
+        requirements: [...baseRequirements, hazardous ? "Mantener segregación APQ en suelo y en transporte" : "No mezclar con otro lote en el destino"],
+        enabled: !expired,
+        blockedReason: expired ? blockedReason : undefined,
+      },
+      {
+        id: "stores",
+        order: 2,
+        title: "Impulsar a tiendas con mayor salida",
+        summary: "Redistribuir el excedente a tiendas con demanda confirmada, priorizando cercanía y capacidad de venta antes del vencimiento.",
+        impact: `Objetivo: colocar hasta ${protectedQuantity} ud. fuera del almacén central.`,
+        timeframe: urgentWindow,
+        quantity: protectedQuantity,
+        requirements: [...baseRequirements, "Confirmar demanda, recepción y capacidad por tienda", hazardous ? "Usar transporte y tienda autorizados para APQ" : "Mantener cadena de frío cuando corresponda"],
+        enabled: !expired,
+        blockedReason: expired ? blockedReason : undefined,
+      },
+      {
+        id: "promotion",
+        order: 3,
+        title: "Activar promoción o venta combinada",
+        summary: "Aplicar descuento progresivo, pack o exposición destacada sin ocultar la fecha ni comprometer el margen mínimo definido.",
+        impact: `Convierte hasta ${protectedQuantity} ud. de riesgo en venta prioritaria.`,
+        timeframe: urgentWindow,
+        quantity: protectedQuantity,
+        requirements: [...baseRequirements, "Validar política comercial, precio y comunicación transparente", hazardous ? "Revisar restricciones de promoción del producto APQ" : "Medir la salida diaria y detener compras del SKU"],
+        enabled: !expired,
+        blockedReason: expired ? blockedReason : undefined,
+      },
+      {
+        id: "donation",
+        order: 4,
+        title: "Preparar donación social",
+        summary: "Contactar con una entidad receptora con tiempo suficiente y acordar cantidad, recogida y condiciones de entrega.",
+        impact: `Puede rescatar hasta ${protectedQuantity} ud. para uso social.`,
+        timeframe: daysRemaining <= 30 ? "Contactar hoy" : "Contactar en 48 h",
+        quantity: protectedQuantity,
+        requirements: [...baseRequirements, "La entidad debe confirmar por escrito que acepta el producto", "Garantizar vida útil suficiente, trazabilidad y transporte seguro"],
+        enabled: !expired && !donationBlockedReason,
+        blockedReason: expired ? blockedReason : donationBlockedReason,
+        partners: EXPIRY_PARTNERS,
+      },
+      {
+        id: "supplier",
+        order: 5,
+        title: "Negociar devolución o transferencia",
+        summary: "Solicitar al proveedor devolución, abono, cambio de lote o traslado a otro centro con mayor consumo.",
+        impact: `Retira hasta ${protectedQuantity} ud. del riesgo local y evita nueva compra.`,
+        timeframe: urgentWindow,
+        quantity: protectedQuantity,
+        requirements: [...baseRequirements, "Revisar acuerdo comercial y autorización de devolución", "Documentar origen, destino y responsable del movimiento"],
+        enabled: !expired,
+        blockedReason: expired ? blockedReason : undefined,
+      },
+    ];
+
+    return [{
+      id,
+      sku: first.sku,
+      product: first.product,
+      family: first.family,
+      batch: first.batch || "Sin lote",
+      expiryDate: first.expiryDate,
+      daysRemaining,
+      locations: stocks.map((stock) => stock.sourceLocationCode || formatLocationCode(stock.aisle, stock.bay, stock.level)),
+      quantity,
+      pendingPicking,
+      projectedDemandUntilExpiry,
+      quantityAtRisk,
+      valueAtRisk: quantityAtRisk * first.unitCost,
+      hazardous,
+      status: expired ? "expired" : daysRemaining <= 15 ? "critical" : daysRemaining <= 45 ? "urgent" : "watch",
+      recommendedSolution: expired ? "withdraw" : quantityAtRisk > 0 ? "stores" : "fefo",
+      solutions,
+    }];
+  }).sort((left, right) => (
+    left.daysRemaining - right.daysRemaining
+    || right.valueAtRisk - left.valueAtRisk
+    || right.quantityAtRisk - left.quantityAtRisk
+  ));
 }
 
 export function createDemoWarehouseDataset(items: RawInventoryItem[]): WarehouseDataset {

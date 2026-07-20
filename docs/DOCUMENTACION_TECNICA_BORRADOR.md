@@ -101,6 +101,8 @@ La principal fortaleza competitiva es que StockFlow IA no se limita a visualizar
 - Recomendación concreta por referencia.
 - Panel lateral con variables y fórmulas utilizadas.
 - Filtros por estado y clasificación ABC.
+- Panel destacado de rutas logísticas con origen, destino, puntuación y alternativas.
+- Centro de rescate de caducidades con cinco escenarios comparables por lote.
 
 ### 4.5 Simulador de escenarios
 
@@ -114,7 +116,7 @@ La principal fortaleza competitiva es que StockFlow IA no se limita a visualizar
 
 - Descarga CSV del análisis completo.
 - Incluye ABC, cobertura, punto de pedido, pedido sugerido, estado y recomendación.
-- Informe Excel integral con siete hojas: resumen ejecutivo, inventario, ubicaciones, movimientos, calidad de datos, plan de conteos y avance de conteo por ubicación.
+- Informe Excel integral con ocho hojas: resumen ejecutivo, inventario, ubicaciones, movimientos optimizados, rescate de caducidades, calidad de datos, plan de conteos y avance de conteo por ubicación.
 - Los totales económicos parciales se identifican como valor conocido y no como valor completo.
 
 ### 4.7 Conteos cíclicos por cliente
@@ -147,12 +149,24 @@ La principal fortaleza competitiva es que StockFlow IA no se limita a visualizar
 - Detalle de ubicación con cantidad, SKU, lote, fabricación, vencimiento y picking pendiente.
 - Cálculo de unidades comprometidas en pedidos próximos.
 - Plan de movimientos con origen, destino, cantidad y motivo explicable.
+- Puntuación del destino entre 1 y 99 según fusión exacta, familia, segregación APQ, recorrido, capacidad y posibilidad de completar el movimiento.
+- Hasta tres ubicaciones alternativas ordenadas, con capacidad libre y motivo de compatibilidad.
 - Subida del excedente a altura conservando un mes de demanda disponible en suelo tras el picking.
 - Fusión únicamente cuando coinciden exactamente SKU, lote, fecha de fabricación y fecha de vencimiento.
 - Selección de un hueco vacío compatible cuando la fusión no es posible y el archivo confirma ese hueco.
 - Bloqueo explícito cuando el único hueco disponible pertenece a una familia incompatible.
 - Reposición desde reserva hacia una ubicación de suelo compatible, aplicando prioridad de vencimiento, solo cuando existen los datos necesarios.
 - Exportación del mapa completo si hay maestro o de las ubicaciones de origen confirmadas en los demás casos.
+
+### 4.9 Prevención de caducidades
+
+- Agrupación del riesgo por SKU, lote, fabricación y vencimiento, conservando todas las ubicaciones de origen.
+- Cálculo de días restantes, stock del lote, picking comprometido, salida prevista, unidades y valor económico potencialmente expuestos.
+- Cinco vías de actuación: FEFO y reposición a suelo, impulso a tiendas, promoción transparente, donación social y devolución o transferencia con proveedor.
+- Escenario recomendado sin ocultar las demás alternativas y con plazo, cantidad, impacto y requisitos para cada una.
+- Enlaces a los canales oficiales de FESBAL, Cáritas Española y Cruz Roja Española para consultar aceptación; StockFlow no transmite datos ni confirma una donación.
+- Bloqueo de la donación para APQ o cuando no queda margen suficiente y bloqueo de todas las vías comerciales cuando el lote ya está caducado.
+- Nota visible de trazabilidad, integridad, etiquetado, cadena de frío, aceptación del receptor y vida útil suficiente.
 
 ## 5. Arquitectura
 
@@ -168,9 +182,10 @@ La solución utiliza una arquitectura sin servidor para el tratamiento de los da
 8. **Auditoría de datos:** calcula cobertura por capacidad y preparación operativa ponderada.
 9. **Motor analítico:** funciones TypeScript puras y deterministas.
 10. **Motor de almacén:** preservación de ubicaciones de origen o generación estructurada, segregación APQ y reglas de movimiento.
-11. **Módulo de conteos:** planificación contractual, captura física por SKU, progreso importado por ubicación, priorización y cálculo del ritmo diario.
-12. **Presentación:** dashboard, mapa o tabla de origen, filtros, explicación y simulador.
-13. **Salida:** informe Excel de siete hojas, análisis, mapa, ubicaciones pendientes y actas CSV generados en el navegador.
+11. **Motor de caducidades:** agrupación por lote, estimación de riesgo, cinco vías de rescate y controles de seguridad.
+12. **Módulo de conteos:** planificación contractual, captura física por SKU, progreso importado por ubicación, priorización y cálculo del ritmo diario.
+13. **Presentación:** dashboard, mapa o tabla de origen, rutas óptimas, centro de rescate, filtros, explicación y simulador.
+14. **Salida:** informe Excel de ocho hojas, análisis, mapa, ubicaciones pendientes y actas CSV generados en el navegador.
 
 El inventario se mantiene únicamente en memoria durante la sesión. No se utiliza base de datos ni se transmite el archivo a un servicio externo. Las bibliotecas de Excel, PDF y Word se cargan en el navegador únicamente cuando son necesarias.
 
@@ -319,6 +334,11 @@ Configura un contrato de uno o dos conteos anuales, importa el avance real por u
 33. Incorporación de conteos sin SKU mediante unión inequívoca por ubicación.
 34. Ampliación del informe integral a siete hojas y de la plantilla Excel a los campos de conteo.
 35. Validación del Excel del video mediante el mismo lector de archivos y el mismo motor de traducción utilizados por la aplicación.
+36. Revisión operativa de los movimientos al detectar que la tabla no hacía suficientemente visible por qué un destino era el mejor.
+37. Sustitución de la selección simple por un ranking explicable de destinos con puntuación, capacidad, recorrido y alternativas.
+38. Creación del centro de rescate de caducidades con cinco escenarios y enlaces oficiales de consulta a entidades sociales.
+39. Incorporación de controles de seguridad para APQ, vida útil insuficiente y lotes ya caducados.
+40. Ampliación del informe integral a ocho hojas, actualización del guion y validación con 38 pruebas lógicas.
 
 ## 10. Challenges y soluciones
 
@@ -375,6 +395,18 @@ Configura un contrato de uno o dos conteos anuales, importa el avance real por u
 **Challenge:** evitar que una recomendación parezca una predicción infalible.
 
 **Solución:** usar reglas deterministas, mostrar las métricas y explicar las fórmulas en cada producto.
+
+### Convertir “hay que moverlo” en una ruta ejecutable
+
+**Challenge:** indicar que existe sobrestock o una rotura no basta si el operario no sabe desde qué ubicación recoger ni en cuál depositar.
+
+**Solución:** evaluar únicamente destinos verificables y compatibles, puntuarlos por lote, familia, APQ, distancia y capacidad y mostrar de forma prominente origen → destino, puntuación y alternativas. Una ubicación vacía reservada para un lote no puede adjudicarse después a otro lote incompatible.
+
+### Reducir caducidad sin crear un riesgo de seguridad
+
+**Challenge:** una recomendación de donación o promoción puede ser peligrosa si el producto está caducado, es APQ, no conserva trazabilidad o no dispone de vida útil suficiente.
+
+**Solución:** separar prevención de retirada. Para lotes aún vigentes se comparan cinco escenarios con requisitos y cantidades; la donación exige aceptación previa del receptor y controles logísticos. Para lotes caducados se bloquean venta, redistribución y donación y se indica retirada segura.
 
 ### Privacidad de los inventarios
 
@@ -450,8 +482,12 @@ Configura un contrato de uno o dos conteos anuales, importa el avance real por u
 - Importación del avance dentro del inventario principal.
 - Enriquecimiento de conteos únicamente por ubicación, sin exigir SKU.
 - Lectura integral del Excel de demostración: 420 ubicaciones, 300 contadas, 120 pendientes, 71,4 % y 4 ubicaciones al día.
+- Selección de un destino óptimo del mismo pasillo con puntuación, factores explicativos y ubicaciones alternativas.
+- Conservación de la asignación de un hueco vacío para impedir mezclas entre lotes incompatibles.
+- Generación de exactamente cinco vías para un lote próximo a caducar, incluidas entidades sociales oficiales.
+- Bloqueo de todas las vías comerciales y de donación para un lote ya caducado.
 
-Resultado actual: 35 pruebas lógicas superadas, prueba del HTML renderizado superada, TypeScript sin errores, ESLint sin errores y compilación desplegable correcta.
+Resultado actual: 38 pruebas lógicas superadas, prueba del HTML renderizado superada, TypeScript sin errores, ESLint sin errores y compilación desplegable correcta.
 
 ## 12. Privacidad, seguridad y ética
 
@@ -475,6 +511,8 @@ Resultado actual: 35 pruebas lógicas superadas, prueba del HTML renderizado sup
 - Sobrestock, cobertura, reposición y simulación requieren demanda, consumo o pedidos verificables; ABC económico y valor requieren además coste unitario.
 - El mapa es una herramienta de apoyo y no ejecuta movimientos físicos ni escribe en un WMS.
 - La marca APQ evita mezclas generales, pero la compatibilidad química y el cumplimiento normativo deben validarse por personal cualificado.
+- Las cinco vías ante caducidad son propuestas de apoyo: cada empresa debe validar normativa, etiquetado, cadena de frío, trazabilidad, condiciones de transporte y aceptación expresa del receptor.
+- Los enlaces a entidades sociales permiten iniciar una consulta; StockFlow no garantiza que una organización acepte un producto o una cantidad concretos.
 
 ## 14. Evolución futura
 

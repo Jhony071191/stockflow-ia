@@ -22,18 +22,21 @@ Pequeños comercios, almacenes y organizaciones suelen disponer de datos de stoc
 - Agrupación por familias y segregación visual de ubicaciones APQ.
 - Trazabilidad por ubicación, SKU, lote, fabricación, vencimiento y cantidad.
 - Picking pendiente por ubicación y unidades comprometidas en pedidos próximos.
-- Recomendaciones de subida a altura, fusión segura y reposición a suelo.
+- Recomendaciones de subida a altura, fusión segura y reposición a suelo con origen y destino exactos.
+- Puntuación de destino sobre 100 según compatibilidad, recorrido, capacidad, familia, APQ y control de lote, con hasta tres ubicaciones alternativas.
 - Fusión permitida únicamente cuando coinciden SKU, lote, fabricación y vencimiento.
 - Clasificación ABC por valor de consumo acumulado, únicamente cuando existen demanda y coste verificables.
 - Cálculo de demanda media, variabilidad, rotación, cobertura y punto de pedido.
 - Detección de roturas, sobrestock, falta de rotación y caducidad próxima.
+- Centro de rescate de caducidades con cinco escenarios: FEFO a picking, impulso a tiendas, promoción, donación social y devolución/transferencia con proveedor.
+- Enlaces oficiales a FESBAL, Cáritas y Cruz Roja, sujetos a aceptación, vida útil, trazabilidad y seguridad; los lotes caducados se bloquean.
 - Centro de acciones explicado y priorizado.
 - Simulador de cambios de demanda y retrasos de proveedor.
 - Planificación de uno o dos conteos cíclicos anuales por cliente y conteo de gracia opcional.
 - Registro de conteo físico, diferencias, tolerancia, exactitud y acta exportable.
 - Importación del avance de conteo por ubicación, incluidas las posiciones vacías: porcentaje, ubicaciones pendientes y prioridades APQ/picking/suelo.
 - Meta diaria calculada con los días operativos del Excel para terminar exactamente un mes antes de la fecha final del cliente.
-- Informe Excel integral de siete hojas, exportaciones CSV especializadas y plantilla compatible.
+- Informe Excel integral de ocho hojas —incluidas rutas optimizadas y rescate de caducidades—, exportaciones CSV especializadas y plantilla compatible.
 - Diseño responsive, navegación por teclado y reducción de movimiento.
 
 ## Flujo principal
@@ -90,6 +93,8 @@ Las ubicaciones pueden llegar en una sola columna o divididas en varios segmento
 - **Excedente:** unidades de suelo por encima del objetivo; se proponen para reserva en altura.
 - **Fusión segura:** solo con coincidencia exacta de SKU, lote, fabricación y vencimiento.
 - **Reposición:** traslada desde reserva a una ubicación de suelo compatible, priorizando el vencimiento más próximo.
+- **Destino óptimo:** puntúa los huecos compatibles por coincidencia exacta, familia, APQ, capacidad y distancia; muestra la mejor ruta y hasta tres alternativas.
+- **Rescate de caducidad:** estima unidades expuestas por lote y compara cinco vías de salida. La donación exige confirmación del receptor, trazabilidad y vida útil suficiente; un lote caducado nunca se propone para venta o donación.
 - **Conteo anticipado:** objetivo = un mes calendario antes de la fecha final; meta diaria = ubicaciones pendientes ÷ días operativos restantes, redondeada hacia arriba.
 
 Las recomendaciones son deterministas y explicables. La aplicación no presenta predicciones opacas como certezas.
@@ -124,7 +129,7 @@ npm run test:logic
 npm run build
 ```
 
-Las 35 pruebas lógicas y la prueba del HTML renderizado verifican, entre otros casos, ABC, simulación, documentos multiformato, enriquecimiento seguro, ubicaciones vacías, APQ, fusión exacta, reposición a suelo y conteos por ubicación. Incluyen la resta de un mes calendario, días operativos de 5/6/7 días, meta diaria, prioridad APQ y enriquecimiento de conteos sin SKU. También se ejecutan TypeScript, ESLint y compilación de producción.
+Las 38 pruebas lógicas y la prueba del HTML renderizado verifican, entre otros casos, ABC, simulación, documentos multiformato, enriquecimiento seguro, ubicaciones vacías, APQ, fusión exacta, rutas óptimas con alternativas, reposición a suelo, cinco vías de rescate de caducidad, bloqueo de lotes caducados y conteos por ubicación. Incluyen la resta de un mes calendario, días operativos de 5/6/7 días, meta diaria, prioridad APQ y enriquecimiento de conteos sin SKU. También se ejecutan TypeScript, ESLint y compilación de producción.
 
 ## Privacidad
 

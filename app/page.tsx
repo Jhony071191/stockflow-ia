@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowDown,
   ArrowUp,
+  BadgePercent,
   Ban,
   Bell,
   Boxes,
@@ -17,10 +18,12 @@ import {
   Database,
   Download,
   Euro,
+  ExternalLink,
   FileJson,
   FileSpreadsheet,
   FileText,
   Info,
+  HeartHandshake,
   LayoutDashboard,
   ListChecks,
   LineChart,
@@ -31,14 +34,17 @@ import {
   PackageOpen,
   PlusCircle,
   RefreshCw,
+  Route,
   RotateCcw,
   Search,
   ShieldCheck,
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
+  Store,
   Target,
   TrendingUp,
+  Undo2,
   Upload,
   Warehouse as WarehouseIcon,
   X,
@@ -65,12 +71,15 @@ import {
 } from "../lib/inventory";
 import {
   buildWarehouseLocations,
+  calculateExpiryRiskPlans,
   calculateWarehouseMoves,
   createDemoWarehouseDataset,
   createWarehouseTemplateRows,
   exportWarehouseCsv,
   warehouseSummary,
   type WarehouseDataset,
+  type ExpiryRiskPlan,
+  type ExpirySolutionType,
   type WarehouseLocation,
   type WarehouseMove,
 } from "../lib/warehouse";
@@ -442,6 +451,128 @@ const movementMeta = (move: WarehouseMove) => {
   return { label: "Bloqueado", icon: Ban, tone: "red" };
 };
 
+const expiryStatusMeta = (plan: ExpiryRiskPlan) => {
+  if (plan.status === "expired") return { label: "Caducado · bloquear", tone: "expired" };
+  if (plan.status === "critical") return { label: `${plan.daysRemaining} días · crítico`, tone: "critical" };
+  if (plan.status === "urgent") return { label: `${plan.daysRemaining} días · urgente`, tone: "urgent" };
+  return { label: `${plan.daysRemaining} días · vigilar`, tone: "watch" };
+};
+
+const expirySolutionMeta: Record<ExpirySolutionType, { icon: LucideIcon; short: string }> = {
+  fefo: { icon: ArrowDown, short: "FEFO" },
+  stores: { icon: Store, short: "Tiendas" },
+  promotion: { icon: BadgePercent, short: "Promoción" },
+  donation: { icon: HeartHandshake, short: "Donación" },
+  supplier: { icon: Undo2, short: "Proveedor" },
+};
+
+function OptimalRoutesPanel({ moves }: { moves: WarehouseMove[] }) {
+  const actionable = moves.filter((move) => move.to).slice(0, 4);
+  const blocked = moves.filter((move) => !move.to).length;
+  return (
+    <section className="decision-panel optimal-routes-panel" data-testid="optimal-routes">
+      <div className="decision-panel-heading">
+        <div><span className="panel-kicker">Origen → destino, sin ambigüedad</span><h2>Rutas logísticas óptimas</h2><p>El destino se puntúa por compatibilidad, recorrido, capacidad, familia, APQ y control de lote.</p></div>
+        <div className="route-heading-badges"><span><Route size={14} /> {actionable.length} rutas visibles</span>{blocked > 0 && <span className="blocked"><Ban size={13} /> {blocked} bloqueadas</span>}</div>
+      </div>
+      {actionable.length ? (
+        <div className="optimal-route-grid">
+          {actionable.map((move) => {
+            const meta = movementMeta(move);
+            const Icon = meta.icon;
+            return (
+              <article className="optimal-route-card" key={move.id}>
+                <div className="optimal-route-top"><span className={`movement-type ${meta.tone}`}><Icon size={15} /> {meta.label}</span><span className="route-score"><strong>{move.destinationScore ?? "—"}</strong>/100 óptima</span></div>
+                <div className="route-product"><span>{move.sku} · lote {move.sourceBatch || "no informado"}</span><strong>{move.product}</strong><p>{decimal.format(move.quantity)} ud. · {move.title}</p></div>
+                <div className="route-flow" aria-label={`Mover de ${move.from} a ${move.to}`}>
+                  <div><small>Origen</small><code>{move.from}</code></div>
+                  <span><ArrowRight size={20} /><small>{move.routeDistance ?? 0} tramos</small></span>
+                  <div className="destination"><small>Destino recomendado</small><code>{move.to}</code></div>
+                </div>
+                <div className="route-proof">
+                  {(move.optimizationFactors ?? []).slice(0, 3).map((factor) => <span key={factor}><CheckCircle2 size={12} /> {factor}</span>)}
+                </div>
+                {!!move.alternatives?.length && (
+                  <details className="route-alternatives">
+                    <summary>{move.alternatives.length} ubicaciones alternativas evaluadas</summary>
+                    <div>{move.alternatives.map((alternative) => <span key={alternative.location}><code>{alternative.location}</code><b>{alternative.score}/100</b><small>{alternative.reason}</small></span>)}</div>
+                  </details>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="decision-empty"><Info size={24} /><strong>No hay una ruta verificable con los datos actuales</strong><p>Para proponer ubicaciones exactas hacen falta demanda, coordenadas, capacidad, familias y el maestro completo de huecos.</p></div>
+      )}
+    </section>
+  );
+}
+
+function ExpiryRescueCenter({ plans }: { plans: ExpiryRiskPlan[] }) {
+  const [selectedPlanId, setSelectedPlanId] = useState("");
+  const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) ?? plans[0];
+  if (!selectedPlan) {
+    return (
+      <section className="decision-panel expiry-center" data-testid="expiry-rescue-center">
+        <div className="decision-panel-heading"><div><span className="panel-kicker">Prevención de desperdicio</span><h2>Centro de rescate de caducidades</h2></div></div>
+        <div className="decision-empty safe"><ShieldCheck size={26} /><strong>Sin lotes dentro del horizonte de 120 días</strong><p>Al importar vencimientos próximos aparecerán cinco vías de actuación con cantidades y controles.</p></div>
+      </section>
+    );
+  }
+  const status = expiryStatusMeta(selectedPlan);
+  const recommendedTitle = selectedPlan.recommendedSolution === "withdraw"
+    ? "Retirada segura"
+    : expirySolutionMeta[selectedPlan.recommendedSolution].short;
+  const dateLabel = new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" })
+    .format(new Date(`${selectedPlan.expiryDate}T12:00:00`));
+
+  return (
+    <section className="decision-panel expiry-center" data-testid="expiry-rescue-center">
+      <div className="decision-panel-heading expiry-heading">
+        <div><span className="panel-kicker">Cinco salidas antes de perder el producto</span><h2>Centro de rescate de caducidades</h2><p>StockFlow calcula unidades expuestas y convierte la alerta en escenarios ejecutables.</p></div>
+        <span className="expiry-plan-count"><CalendarDays size={15} /> {plans.length} lotes vigilados</span>
+      </div>
+      <div className="expiry-plan-tabs" aria-label="Seleccionar lote próximo a caducar">
+        {plans.slice(0, 8).map((plan) => {
+          const planStatus = expiryStatusMeta(plan);
+          return <button aria-pressed={plan.id === selectedPlan.id} className={plan.id === selectedPlan.id ? "selected" : ""} key={plan.id} onClick={() => setSelectedPlanId(plan.id)} type="button"><span>{plan.sku}</span><strong>{plan.product}</strong><small className={planStatus.tone}>{planStatus.label}</small></button>;
+        })}
+      </div>
+      <div className="expiry-risk-summary">
+        <div className="expiry-product-summary"><div><span className={`expiry-status ${status.tone}`}>{status.label}</span>{selectedPlan.hazardous && <span className="expiry-status apq"><ShieldAlert size={12} /> APQ</span>}</div><h3>{selectedPlan.product}</h3><p>{selectedPlan.sku} · lote {selectedPlan.batch} · vence {dateLabel}</p><div className="expiry-locations"><MapPin size={14} /> {selectedPlan.locations.join(" · ")}</div></div>
+        <div className="expiry-kpi"><small>Stock del lote</small><strong>{decimal.format(selectedPlan.quantity)} ud.</strong><span>{decimal.format(selectedPlan.pendingPicking)} ud. ya comprometidas</span></div>
+        <div className="expiry-kpi danger"><small>Unidades en riesgo</small><strong>{decimal.format(selectedPlan.quantityAtRisk)} ud.</strong><span>{currency.format(selectedPlan.valueAtRisk)} de valor expuesto</span></div>
+        <div className="expiry-kpi"><small>Salida prevista</small><strong>{decimal.format(selectedPlan.projectedDemandUntilExpiry)} ud.</strong><span>hasta el vencimiento</span></div>
+        <div className="expiry-kpi recommended"><small>Primera vía sugerida</small><strong>{recommendedTitle}</strong><span>decisión explicable, no automática</span></div>
+      </div>
+      {selectedPlan.status === "expired" && <div className="expiry-safety-alert"><Ban size={18} /><div><strong>Lote no recuperable para consumo o venta</strong><p>Bloquear y segregar físicamente. Las cinco vías quedan deshabilitadas y debe aplicarse el procedimiento de retirada de la empresa.</p></div></div>}
+      <div className="expiry-solution-grid">
+        {selectedPlan.solutions.map((solution) => {
+          const meta = expirySolutionMeta[solution.id];
+          const Icon = meta.icon;
+          const recommended = selectedPlan.recommendedSolution === solution.id;
+          return (
+            <article className={`expiry-solution-card ${solution.enabled ? "" : "disabled"} ${recommended ? "recommended" : ""}`} key={solution.id}>
+              <div className="expiry-solution-top"><span className="solution-order">{solution.order}</span><span className="solution-icon"><Icon size={19} /></span>{recommended && <b>Recomendada</b>}</div>
+              <h3>{solution.title}</h3>
+              <p>{solution.summary}</p>
+              <div className="solution-impact"><strong>{decimal.format(solution.quantity)} ud.</strong><span>{solution.timeframe}</span></div>
+              <small>{solution.impact}</small>
+              <ul>{solution.requirements.map((requirement) => <li key={requirement}><CheckCircle2 size={12} /> {requirement}</li>)}</ul>
+              {!solution.enabled && <div className="solution-blocked"><Ban size={14} /> {solution.blockedReason}</div>}
+              {solution.enabled && solution.partners && (
+                <div className="charity-partners"><span>Consultar aceptación oficial:</span>{solution.partners.map((partner) => <a href={partner.url} key={partner.name} rel="noreferrer" target="_blank">{partner.name}<ExternalLink size={12} /></a>)}</div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <div className="expiry-compliance-note"><ShieldCheck size={18} /><p><strong>Control obligatorio:</strong> ninguna opción autoriza por sí sola la salida. Hay que validar trazabilidad, integridad, etiquetado, cadena de frío, aceptación del receptor y vida útil suficiente. Un producto caducado se bloquea.</p></div>
+    </section>
+  );
+}
+
 function WarehouseView({
   dataset,
   analysis,
@@ -619,12 +750,12 @@ function WarehouseView({
         <div className="panel-heading"><div><span className="panel-kicker">Plan logístico explicable</span><h2>Movimientos recomendados</h2></div><span className="movement-count">{moves.length} acciones</span></div>
         <div className="table-scroll">
           <table className="movement-table">
-            <thead><tr><th>Movimiento</th><th>SKU / Producto</th><th>Cantidad</th><th>Origen</th><th>Destino</th><th>Motivo y control de lote</th></tr></thead>
+            <thead><tr><th>Movimiento</th><th>SKU / Producto</th><th>Cantidad</th><th>Origen</th><th>Destino óptimo</th><th>Motivo y control de lote</th></tr></thead>
             <tbody>
               {moves.map((move) => {
                 const meta = movementMeta(move);
                 const Icon = meta.icon;
-                return <tr key={move.id}><td><span className={`movement-type ${meta.tone}`}><Icon size={16} />{meta.label}</span></td><td><span className="sku-line">{move.sku}</span><span className="product-line">{move.product}</span></td><td><strong>{decimal.format(move.quantity)} ud.</strong></td><td><code>{move.from}</code></td><td>{move.to ? <code>{move.to}</code> : <span className="no-target">Sin hueco</span>}</td><td><strong>{move.title}</strong><p>{move.reason}</p><small>{move.lotRule}</small></td></tr>;
+                return <tr key={move.id}><td><span className={`movement-type ${meta.tone}`}><Icon size={16} />{meta.label}</span></td><td><span className="sku-line">{move.sku}</span><span className="product-line">{move.product}</span></td><td><strong>{decimal.format(move.quantity)} ud.</strong></td><td><code>{move.from}</code>{move.sourceBatch && <small className="route-lot">Lote {move.sourceBatch}</small>}</td><td>{move.to ? <div className="movement-destination"><code>{move.to}</code><span>{move.destinationScore}/100</span><small>{decimal.format(move.projectedDestinationQuantity ?? 0)} ud. tras mover</small></div> : <span className="no-target">Sin hueco</span>}</td><td><strong>{move.title}</strong><p>{move.reason}</p>{move.optimizationFactors?.slice(0, 2).map((factor) => <span className="movement-proof" key={factor}><CheckCircle2 size={11} /> {factor}</span>)}<small>{move.lotRule}</small>{!!move.alternatives?.length && <details className="movement-alternatives"><summary>Ver {move.alternatives.length} alternativas</summary>{move.alternatives.map((alternative) => <span key={alternative.location}><code>{alternative.location}</code> {alternative.score}/100 · {decimal.format(alternative.freeCapacity)} ud. libres</span>)}</details>}</td></tr>;
               })}
               {!moves.length && <tr><td colSpan={6}><div className="empty-state">{capabilities?.demand === false || capabilities?.completeLayout === false ? <CircleAlert size={24} /> : <CheckCircle2 size={24} />}<strong>{capabilities?.demand === false ? "Recomendaciones pausadas" : capabilities?.completeLayout === false ? "Falta el maestro completo de ubicaciones" : "Distribución equilibrada"}</strong><span>{capabilities?.demand === false ? "Añade demanda, consumo mensual o pedidos para calcular sobrestock y reposición." : capabilities?.completeLayout === false ? "Carga también los huecos vacíos y capacidades para proponer destinos reales." : "No se requieren movimientos de altura o reposición."}</span></div></td></tr>}
             </tbody>
@@ -638,14 +769,18 @@ function WarehouseView({
 
 function ActionsView({
   items,
+  warehouse,
   onExport,
   onSelect,
 }: {
   items: AnalyzedInventoryItem[];
+  warehouse: WarehouseDataset;
   onExport: () => void;
   onSelect: (item: AnalyzedInventoryItem) => void;
 }) {
   const [filter, setFilter] = useState("all");
+  const moves = useMemo(() => calculateWarehouseMoves(warehouse, items), [warehouse, items]);
+  const expiryPlans = useMemo(() => calculateExpiryRiskPlans(warehouse, items), [warehouse, items]);
   const filtered = filter === "all" ? items : items.filter((item) => item.status === filter);
   const classACritical = items.filter((item) => item.status === "critical" && item.abcAvailable && item.abcClass === "A").length;
   const hasDemand = items.some((item) => item.demandAvailable);
@@ -664,6 +799,8 @@ function ActionsView({
         <span className="insight-icon"><Sparkles size={22} /></span>
         <div><strong>{hasDemand ? `${classACritical} decisiones clase A requieren atención inmediata` : "Priorización de roturas y sobrestock pendiente"}</strong><p>{hasDemand ? "La prioridad combina cobertura, plazo de entrega, valor de consumo y stock de seguridad." : "Las cantidades físicas ya están disponibles; añade demanda para activar las recomendaciones operativas."}</p></div>
       </section>
+      <OptimalRoutesPanel moves={moves} />
+      <ExpiryRescueCenter plans={expiryPlans} />
       <section className="panel">
         <div className="panel-filter-row">
           <div className="segmented-control" aria-label="Filtrar prioridades">
@@ -1382,6 +1519,7 @@ export default function Home() {
     const { default: writeExcelFile } = await import("write-excel-file/browser");
     const locations = buildWarehouseLocations(warehouse);
     const moves = calculateWarehouseMoves(warehouse, analysis.items);
+    const expiryPlans = calculateExpiryRiskPlans(warehouse, analysis.items);
     const locationCountProgress = calculateLocationCountProgress(warehouse.cycleCount);
     const headerRow = (headers: string[]) => headers.map((value) => ({ value, fontWeight: "bold" as const, backgroundColor: "#0B4A5A", textColor: "#FFFFFF", wrap: true }));
     const dataRows = (rows: Array<Array<string | number>>) => rows.map((row) => row.map((value) => ({ value, wrap: true })));
@@ -1399,6 +1537,8 @@ export default function Home() {
       ["Ubicaciones ocupadas", locations.filter((location) => location.contents.length).length],
       ["Picking pendiente conocido", locations.reduce((sum, location) => sum + location.pendingPicking, 0)],
       ["Movimientos recomendados", moves.length],
+      ["Lotes próximos o caducados", expiryPlans.length],
+      ["Unidades con riesgo de caducidad", expiryPlans.reduce((sum, plan) => sum + plan.quantityAtRisk, 0)],
     ];
     if (locationCountProgress) {
       summaryRows.push(
@@ -1421,7 +1561,37 @@ export default function Home() {
       location.contents.map((stock) => stock.sku).join(" | "), location.contents.map((stock) => stock.batch || "Sin lote").join(" | "),
       location.contents.map((stock) => stock.expiryDate || "No informado").join(" | "),
     ]);
-    const movementRows = moves.map((move) => [move.type, move.priority, move.sku, move.product, move.quantity, move.from, move.to || "Sin destino", move.reason, move.lotRule]);
+    const movementRows = moves.map((move) => [
+      move.type, move.priority, move.sku, move.product, move.quantity, move.from, move.to || "Sin destino",
+      move.destinationScore ?? "No disponible", move.routeDistance ?? "No disponible", move.projectedDestinationQuantity ?? "No disponible",
+      (move.optimizationFactors ?? []).join(" | "), (move.alternatives ?? []).map((alternative) => `${alternative.location} (${alternative.score}/100)`).join(" | "),
+      move.reason, move.lotRule,
+    ]);
+    const expiryRows = expiryPlans.flatMap((plan) => plan.solutions.map((solution) => [
+      plan.sku,
+      plan.product,
+      plan.batch,
+      plan.expiryDate,
+      plan.daysRemaining,
+      plan.locations.join(" | "),
+      plan.quantity,
+      plan.pendingPicking,
+      plan.projectedDemandUntilExpiry,
+      plan.quantityAtRisk,
+      plan.valueAtRisk,
+      plan.hazardous ? "APQ" : "General",
+      plan.status,
+      plan.recommendedSolution === solution.id ? "SÍ" : "NO",
+      solution.order,
+      solution.title,
+      solution.enabled ? "Disponible" : "Bloqueada",
+      solution.quantity,
+      solution.timeframe,
+      solution.impact,
+      solution.requirements.join(" | "),
+      solution.blockedReason || "",
+      (solution.partners ?? []).map((partner) => `${partner.name}: ${partner.url}`).join(" | "),
+    ]));
     const qualityRows = readiness.capabilities.map((capability) => [
       capability.label,
       capability.status === "complete" ? "Completo" : capability.status === "partial" ? "Parcial" : "Pendiente",
@@ -1453,12 +1623,13 @@ export default function Home() {
       { sheet: "Resumen ejecutivo", data: [headerRow(summaryRows[0] as string[]), ...dataRows(summaryRows.slice(1))], columns: [{ width: 35 }, { width: 42 }], stickyRowsCount: 1 },
       { sheet: "Inventario", data: [headerRow(["SKU", "Producto", "Familia", "ABC", "Stock", "Demanda mes", "Cobertura días", "Punto pedido", "Pedido sugerido", "Estado", "Situación", "Acción", "Valor stock"]), ...dataRows(inventoryRows)], columns: [16, 32, 22, 12, 12, 16, 16, 16, 18, 14, 24, 48, 18].map((width) => ({ width })), stickyRowsCount: 1 },
       { sheet: "Ubicaciones", data: [headerRow(["Ubicación", "Zona", "Familia", "Pasillo", "Módulo", "Altura", "Cantidad", "Capacidad", "Picking", "SKU", "Lotes", "Vencimientos"]), ...dataRows(locationRows)], columns: [24, 14, 24, 10, 10, 10, 14, 14, 14, 28, 28, 28].map((width) => ({ width })), stickyRowsCount: 1 },
-      { sheet: "Movimientos", data: [headerRow(["Tipo", "Prioridad", "SKU", "Producto", "Cantidad", "Origen", "Destino", "Motivo", "Control de lote"]), ...dataRows(movementRows)], columns: [16, 12, 16, 28, 14, 22, 22, 55, 55].map((width) => ({ width })), stickyRowsCount: 1 },
+      { sheet: "Movimientos", data: [headerRow(["Tipo", "Prioridad", "SKU", "Producto", "Cantidad", "Origen", "Destino óptimo", "Puntuación", "Distancia", "Cantidad destino tras mover", "Factores de optimización", "Alternativas", "Motivo", "Control de lote"]), ...dataRows(movementRows)], columns: [16, 12, 16, 28, 14, 22, 22, 14, 14, 22, 55, 45, 55, 55].map((width) => ({ width })), stickyRowsCount: 1 },
+      { sheet: "Rescate caducidades", data: [headerRow(["SKU", "Producto", "Lote", "Vencimiento", "Días restantes", "Ubicaciones", "Stock lote", "Picking", "Salida prevista", "Unidades en riesgo", "Valor en riesgo", "Zona", "Estado", "Recomendada", "Orden", "Escenario", "Disponibilidad", "Unidades", "Plazo", "Impacto", "Requisitos", "Motivo bloqueo", "Entidades oficiales"]), ...dataRows(expiryRows)], columns: [16, 28, 18, 16, 14, 34, 14, 12, 16, 18, 18, 12, 14, 14, 10, 34, 16, 14, 16, 38, 60, 50, 70].map((width) => ({ width })), stickyRowsCount: 1 },
       { sheet: "Calidad de datos", data: [headerRow(["Capacidad", "Estado", "Cobertura", "Peso", "Uso", "Próximo paso"]), ...dataRows(qualityRows)], columns: [24, 16, 14, 10, 38, 55].map((width) => ({ width })), stickyRowsCount: 1 },
       { sheet: "Plan de conteos", data: [headerRow(["Cliente", "Campaña", "Fecha", "Estado", "Tolerancia %"]), ...dataRows(campaignRows)], columns: [30, 22, 16, 16, 16].map((width) => ({ width })), stickyRowsCount: 1 },
       { sheet: "Avance conteo ubicaciones", data: [headerRow(["Campaña", "Ubicación", "Zona", "Familia", "Pasillo", "Módulo", "Altura", "SKU", "Stock sistema", "Conteo físico", "Fecha conteo", "Picking", "Estado", "Fecha final", "Objetivo anticipado", "Meta diaria"]), ...dataRows(locationCountRows)], columns: [25, 22, 14, 24, 10, 10, 10, 26, 16, 16, 16, 12, 15, 16, 18, 14].map((width) => ({ width })), stickyRowsCount: 1 },
     ]).toFile(`stockflow_informe_${datasetName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "inventario"}.xlsx`);
-    showToast("Informe ejecutivo Excel preparado con 7 hojas");
+    showToast("Informe ejecutivo Excel preparado con 8 hojas");
   };
 
   const downloadWarehouseTemplate = async () => {
@@ -1560,7 +1731,7 @@ export default function Home() {
         {activeView === "resumen" && <Dashboard analysis={analysis} readiness={readiness} warehouse={warehouse} onAnalyze={() => openUpload("replace")} onCompleteData={() => openUpload("enrich")} onExportExecutive={exportExecutiveWorkbook} onViewAll={() => navigate("acciones")} onSelect={setSelectedItem} />}
         {activeView === "inventario" && <InventoryView items={analysis.items} onUpload={() => openUpload("replace")} onExport={exportResults} onSelect={setSelectedItem} />}
         {activeView === "almacen" && <WarehouseView dataset={warehouse} analysis={analysis} onUpload={() => openUpload("replace")} onExport={exportWarehouse} />}
-        {activeView === "acciones" && <ActionsView items={analysis.items} onExport={exportResults} onSelect={setSelectedItem} />}
+        {activeView === "acciones" && <ActionsView items={analysis.items} warehouse={warehouse} onExport={exportResults} onSelect={setSelectedItem} />}
         {activeView === "simulador" && <SimulatorView inventory={inventory} baseline={analysis} onSelect={setSelectedItem} />}
         {activeView === "conteos" && <CyclicCountsView items={analysis.items} warehouse={warehouse} plan={countPlan} entries={countEntriesByCampaign[activeCampaignId] ?? {}} activeCampaignId={activeCampaignId} completedCampaigns={completedCampaigns} onPlanChange={setCountPlan} onEntryChange={(sku, value) => setCountEntriesByCampaign((current) => ({ ...current, [activeCampaignId]: { ...(current[activeCampaignId] ?? {}), [sku]: value } }))} onCampaignChange={setActiveCampaignId} onFillSample={fillCountSample} onReset={resetCount} onComplete={completeCount} onNotify={showToast} />}
       </section>
